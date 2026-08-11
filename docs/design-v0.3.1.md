@@ -1,9 +1,9 @@
-# hmos-openvpn 设计文档 v0.3
+# hmos-openvpn 设计文档 v0.3.1
 
-> 版本：v0.3（三Agent R2 架构评审共识修复版）　日期：2026-08-11　作者：Hermes Agent
+> 版本：v0.3.1（三Agent R3 终审共识修复版，**可进入 M0**）　日期：2026-08-11　作者：Hermes Agent
 > 项目：HarmonyOS NEXT 纯鸿蒙 VPN 应用，功能级复刻 Clash Verge Rev（v2.5.3）
 > 参照实现：ClashBox（⭐4.2k，github.com/xiaobaigroup/ClashBox，master 分支，已 clone 完整源码）
-> 本版变更：落实 R2 评审 1 项阻断（运行态动态语义/Go runtime 不可重启/配置变更分级）+ 全部重要共识（接口契约骨架/反馈回路/状态归属/演进债务/安全模型/测试与性能预算）
+> 本版变更：落实 R3 终审 2 项阻断（updateConfig 命名全文统一为 validateConfig+applyConfig 两段式、流量通道统一为日志TSFN/流量轮询）+ 9 项重要强前置（权限/烟囱测试 SOP、量化断言、go-ohos 复现入排期、配置分级 spike 定义、L级→事件映射、CoreState/错误码对齐、M1 退出门量化）
 
 ---
 
@@ -90,8 +90,9 @@
 ### 3.4 关键数据流
 - **开启 VPN**：UI → vpnExtension.startVpnExtensionAbility → VpnExtensionAbility.onCreate(同进程)建 TUN fd → NAPI startTun(fd, callback) → mihomo 接管流量
 - **数据查询**：ArkTS 经 NAPI 调 getProxies/getTraffic/getConnections 等
-- **流式推送**：日志/流量经 TSFN 回调（见 §3.5）
-- **配置下发**：配置合成管线产物 → NAPI updateConfig(yamlString) → mihomo 热加载
+- **流式推送**：日志经 TSFN 回调；实时流量/总流量/活跃连接走 ArkTS 侧 1Hz 轮询（轮询更稳、反压可控、避免 TSFN 高频拖累，见 §3.5）
+- **配置下发**：配置合成管线产物 → NAPI `validateConfig(yamlString)` 试加载 → 通过后 `applyConfig()` 原子切换 → mihomo 热加载
+- **TUN 重建子流**（L3 配置变更触发）：UI 收到 TSFN `TunnelStateChanged(Reconstructing)` → 停 mihomo 旧 fd → 调 VpnExtensionAbility rebuildTun 拿新 fd → NAPI startTun(newFd) → TSFN `TunnelStateChanged(Running)`
 
 ### 3.5 线程/事件模型（R1 阻断修复）
 
@@ -156,9 +157,9 @@ UIAbility ↔ VpnExtensionAbility 虽同进程，但 VPN 侧生命周期事件�
 - **冲突处理**：覆写层优先级高于订阅原文；script 模式由用户脚本全权处理
 - **沙箱路径**：mihomo 工作目录（yaml、缓存、GeoX）= 应用 `filesDir`（如 `/data/app/.../files/mihomo/`），由 NAPI initClash 时传入绝对路径
 - **并发竞态（R2 共识）**：Service 层加 single-flight + 编辑态标记。检测到"用户编辑覆写未保存"时，订阅自动刷新要么延后（队列化）、要么只更新订阅原文不触发合成，防用户编辑被覆盖丢失。
-- **配置变更三步法（R2 共识，原子切换）**：① 本地 YAML 语法 lint（用 mihomo 自带 parser） ② 调 mihomo 校验接口试加载（validate，不切换主配置） ③ 校验通过后原子切换（apply），失败保留上一份配置不变。运行时产物采用"先写 tmp 文件、原子 rename 覆盖"落盘，避免半写状态。**updateConfig 拆为 validateConfig + applyConfig 两段式**。
+- **配置变更三步法（R2 共识，原子切换）**：① 本地 YAML 语法 lint（ArkTS Service 层用 JS YAML parser，不进 NAPI） ② NAPI `validateConfig(yaml)` 试加载（不切换主配置） ③ 校验通过后 `applyConfig()` 原子切换，失败保留上一份配置不变。运行时产物采用"先写 tmp 文件、原子 rename 覆盖"落盘，避免半写状态。三种结果（lint 失败/validate 失败/apply 成功）对应不同 TSFN 事件。**NAPI 仅暴露 validateConfig + applyConfig 两段式，全文无单段 updateConfig**。
 - **选择记忆迁移（R2）**：切订阅时按"组名→节点名"迁移用户已选节点；同名组/节点不存在时回退到该组首个节点。
-- **操作互斥**：updateConfig 进行中的测速/切节点/再次改配置，进入操作队列串行执行，过渡态旧连接默认保活（keep existing, new via new，mihomo 默认行为），UI 提供"关闭所有连接并重连"按钮。
+- **操作互斥**：applyConfig 进行中的测速/切节点/再次改配置，进入 Service 层 single-flight 串行队列（promise chain），过渡态旧连接默认保活（keep existing, new via new，mihomo 默认行为），UI 提供"关闭所有连接并重连"按钮。
 
 ### 3.7 接口契约骨架（R2 共识，先于实现冻结）
 
@@ -166,13 +167,19 @@ UIAbility ↔ VpnExtensionAbility 虽同进程，但 VPN 侧生命周期事件�
 
 **统一返回结构**：所有导出函数 Go 侧签名统一 `func() (any, error)`；C++ 侧统一捕获；ArkTS 侧 `Result<T, ClashError>` 包装。
 
-**错误码模型**（8 位分段）：1xxx 参数/调用层、2xxx mihomo 业务层、3xxx 资源/系统层、9xxx panic。Go panic 必须所有导出函数 `defer recover`（**硬性要求**，否则 panic 杀死宿主进程→TUN 死锁→整机断网）。
+**错误码模型**（8 位分段）：1xxx 参数/调用层、2xxx mihomo 业务层、3xxx 资源/系统层、9xxx panic；4xxx–8xxx 保留未来扩展，10xxx+ 保留给 v2。Go panic 必须所有导出函数 `defer recover`（**硬性要求**，否则 panic 杀死宿主进程→TUN 死锁→整机断网）。**CoreState.Error.subCode = errorCode 的低 3 位业务子码（与 9xxx panic 段互斥）**。
 
 **TSFN 生命周期契约**：注册/回调/释放三段配对，页面销毁时解绑，进程退出按序清理。
 
-**ABI 版本握手**：Bridge 加零参 `nativeVersion(): { core, abi, buildCommit }`，App 启动校验与 manifest 预期版本一致；ClashBox 升级时强制 bump abi 字符串；直接用的上游 .so 加 sha256 锚定 + 烟囱测试自检。
+**ABI 版本握手**：Bridge 加零参 `nativeVersion(): { core, abi, buildCommit }`，在 EntryAbility.onCreate 同步校验，失败阻断启动并提示"核心版本不匹配，请重装"，不允许进入 UI；ClashBox 升级时强制 bump abi 字符串；直接用的上游 .so 加 sha256 锚定 + 烟囱测试自检。
 
-**4 个关键函数完整 TS 类型**（M0 固化，其余 36 个列源码定位）：getProxies（嵌套结构体）、getTraffic（up/down 标量）、updateConfig/applyConfig（带错误码 Result）、startLog（带退订语义 callback）。
+**5 个关键函数完整 TS 类型**（M0 固化首版 .d.ts，其余 35 个列源码定位）：getProxies（嵌套结构体）/ getTraffic / validateConfig / applyConfig / startLog。示例范式：
+```typescript
+getTraffic(): Result<{ up: number; down: number }, ClashError>
+validateConfig(yaml: string): Promise<Result<{ ok: true }, ClashError>>
+applyConfig(): Promise<Result<{ ok: true; appliedAt: number }, ClashError>>
+startLog(cb: (level: string, payload: string) => void): () => void  // 返回退订函数
+```
 
 ### 3.8 状态归属与持久化（R2 共识）
 
@@ -187,14 +194,19 @@ UIAbility ↔ VpnExtensionAbility 虽同进程，但 VPN 侧生命周期事件�
 
 ### 3.9 反馈回路：核心事件清单（R2 共识）
 
-所有核心事件走既有 TSFN 机制（不新增通道），携带 CoreState：
+所有核心事件走既有 TSFN 机制（不新增通道）。**状态变更类事件携带 CoreState**；高频 Log 事件只携带 level+payload（不附 CoreState，省 TSFN 带宽）。区分 TunnelState（TUN 自身：Idle/Running/Reconstructing）与 CoreState（核心，TunnelState 相关状态是其子集映射）：
 
 ```
-ConfigApplied / ConfigFailed(errorCode,msg) / CoreExit / TunnelStateChanged / ProxyChanged / Log(level,payload)
+ConfigApplied(+CoreState) / ConfigFailed(errorCode, msg, +CoreState) / CoreExit(+CoreState)
+TunnelStateChanged(TunnelState, +CoreState) / ProxyChanged(+CoreState)
+Heartbeat(coreState, uptimeMs)  // 5s 一次；15s 无心跳→UI 切 Error
+Log(level, payload)  // 高频，不带 CoreState
 ```
 
-**配置 reload 闭环**：updateConfig 改为异步返回 Promise，同时 TSFN 推送 ConfigApplied/ConfigFailed；UI 据此显示 toast 或"重新加载中"态。
-**核心健康**：heartbeat / CoreExit 事件 + UI 状态降级逻辑，防"VPN 已连接"长期说谎。
+**L 级→事件映射**：L1→ProxyChanged/无；L2→ConfigApplied；L3→TunnelStateChanged(CoreState=Reloading)；L4→CoreExit。
+
+**配置 reload 闭环**：applyConfig 异步返回 Promise，同时 TSFN 推送 ConfigApplied/ConfigFailed；UI 据此显示 toast 或"重新加载中"态。
+**核心健康**：Heartbeat/CoreExit 事件 + UI 状态降级逻辑，防"VPN 已连接"长期说谎。
 
 ---
 
@@ -208,7 +220,7 @@ ConfigApplied / ConfigFailed(errorCode,msg) / CoreExit / TunnelStateChanged / Pr
 | connections 连接 | 活跃连接表格/排序/关闭单个/关闭全部 | M2 |
 | rules 规则 | 规则列表 | M2 |
 | logs 日志 | startLog 流式/级别过滤/搜索 | M2 |
-| settings 设置 | 端口/模式/主题/语言/VPN开关/DNS配置/TUN栈选择 | M1基础+M2全量 |
+| settings 设置 | 端口(L1)/模式(L1)/主题(L1)/语言(L1)/VPN开关/DNS配置(L3)/TUN栈选择(L3)/MTU调节(L3)/route-address(L3)；script模式默认关，开启需应用内二次确认 | M1基础+M2全量 |
 | unlock 解锁 | 流媒体检测逐节点（M3 前先 spike 验证核心侧 dialer 能力） | M3 |
 | **GeoX 数据** | geoip.metadb/geosite.dat：assets 内置 + 应用内更新（updateGeoData） | M1 |
 | **DNS 配置** | fake-ip/redir-host/nameserver 设置 | M1 |
@@ -228,17 +240,22 @@ ConfigApplied / ConfigFailed(errorCode,msg) / CoreExit / TunnelStateChanged / Pr
 ### M0 工程奠基（先行，含 4 个 R1 阻断前置）
 
 **M0a 权限与空壳（先于工具链，最高优先）**
-1. **MANAGE_VPN 权限矩阵确认**（🔴 R1 共识，M0 第一交付物）：实测 VpnExtensionAbility 所需权限清单（MANAGE_VPN/INTERNET/KEEP_BACKGROUND_RUNNING/dataTransfer），确认自用侧载下受限权限的获取路径（调试 profile 声明），输出书面权限矩阵文档 + hdc 实测清单
+1. **MANAGE_VPN 权限矩阵确认**（🔴 R1 共识，M0 第一交付物）：实测 VpnExtensionAbility 所需权限清单（MANAGE_VPN/INTERNET/KEEP_BACKGROUND_RUNNING/dataTransfer），确认自用侧载下受限权限的获取路径（调试 profile 声明），输出书面权限矩阵文档 + hdc 实测清单。
+   **权限实测 SOP**：① module.json5 `requestPermissions` 声明样例 + `requestPermissionsFromUser` 调用样例 ② 调试 profile 申请/签名步骤（devecocli signature） ③ hdc 验证授权命令（`hdc shell bm dump -n <pkg>` / 权限查询） ④ 判据="系统 VPN 授权弹窗出现即成功" ⑤ 失败时降级路径
 2. 鸿蒙工程骨架（entry + 引入 proxy_core 模块）
 3. 真机签名跑通空 HAP
 
-**M0b 核心链路烟囱测试**
-4. 引入 ClashBox proxy_core（含现成 libflclash.so 优先复用，go-ohos 自建编译为备选/复现路径）
+**M0b 核心链路烟囱测试**（工期窗口 7 个工作日，第 5 天末为 go-ohos 决策点）
+4. 引入 ClashBox proxy_core（含现成 libflclash.so 优先复用）
 5. NAPI Bridge 调通
-6. **烟囱测试（M0 退出门，R1 共识升级）**：真机弹出系统 VPN 授权框 → VpnExtensionAbility.onCreate 建 TUN fd → startTun(fd) 返回成功 → mihomo 启动 5 秒 → 主动 stop → 进程不崩、无 panic、fd 正确清理
+6. **go-ohos 本地 build 复现 .so 验证**（R3 共识，与引入现成 .so 并列的独立任务，非可选）：输出 sha256 一致性 + ABI 烟囱自检；印证本地独立编译能力，对冲能力空心化风险
+7. **烟囱测试（M0 退出门，R1 共识升级）**：真机弹出系统 VPN 授权框 → VpnExtensionAbility.onCreate 建 TUN fd → startTun(fd) 返回成功 → mihomo 启动 5 秒 → 主动 stop → 进程不崩、无 panic、fd 正确清理。
+   **烟囱测试 SOP**：① 最小 ArkTS 入口（按钮→startVpnExtensionAbility） ② fd 传递最小代码 ③ 脚本化 `smoke.sh`（hdc 驱动）+ `smoke_assert.sh` 自动断言（作为 M1/M2 回归套件复用） ④ **量化断言**：a. `lsof -p <pid>` 不含 tun fd b. 核心 stop 后 RSS 下降 ≥50MB c. 5 分钟内再次 startTun 不 panic d. 日志无 panic/崩栈关键字
+8. **配置变更影响分级 spike**：输入=mihomo 全量 config 字段清单（约 80 个）；方法=逐字段二值实验（改+reload+观察）；产出=字段→L1–L4 映射表；时间盒=M0 第 3–5 天
 
-- **M0 退出门**：① 权限矩阵文档 ② 真机装空壳 ③ 烟囱测试全绿（VPN 授权弹窗+隧道创建+核心起停+资源清理）
-- **go-ohos fallback**：若现成 .so 不可用且自建工具链 M0 第 5 天跑不通，切备选方案（纯 C tun2socks + Go 仅协议层，体积降至 ~10MB）
+- **M0 退出门**：① 权限矩阵文档 ② 真机装空壳 ③ 烟囱测试全绿（含量化断言）④ go-ohos 复现验证通过 ⑤ 配置变更影响分级表
+- **go-ohos fallback**：若现成 .so 不可用且自建工具链 M0 第 5 天末跑不通，切备选方案（纯 C tun2socks + Go 仅协议层，体积降至 ~10MB）
+- **golden 文件来源**（Mock NAPI 用）：① 优先 ClashBox proxy_core 真机导出 ② 次选 mihomo v1.17.1 临时回环 127.0.0.1:9090 抓取 ③ 手工构造仅占位须标"待真机替换"
 
 ### M1 核心可用
 - profiles：导入(URL)/更新/切换订阅、节点列表、订阅流量信息展示
@@ -248,7 +265,7 @@ ConfigApplied / ConfigFailed(errorCode,msg) / CoreExit / TunnelStateChanged / Pr
 - GeoX 数据内置 + 更新
 - VPN 断连重连与 fd 资源清理
 - i18n 全部字符串入 string.json（zh/en）
-- **M1 退出门**（可复现，替代"YouTube通"）：固定测试订阅（≥3 节点）下，经代理 curl 目标返回 200 且延迟低于阈值，流量图 Rx/Tx 非零；VPN 切后台 30 分钟连接存活率实测记录
+- **M1 退出门**（可复现，替代"YouTube通"）：固定测试订阅（≥3 节点）下，经代理 curl `https://www.gstatic.com/generate_204` 返回 204/200 且延迟 < 3000ms，流量图 Rx/Tx 非零；App 启动 0.5s 内调 nativeVersion() 校验（不一致则降级提示）；VPN 切后台灭屏 30 分钟连接存活率 ≥70%（鸿蒙 7.0 实测回收率较高，低于阈值则触发 §6 策略回退方案）；"现场日志一键导出"可用
 
 ### M2 完整对齐
 - connections/rules/logs 三页全量
@@ -335,17 +352,18 @@ VPN 应用是高价值目标，必须覆盖：
 
 **已闭合（R1 拍板）**：
 - ~~起步路径~~ → **复用 ClashBox proxy_core（Apache-2.0），UI 从零搭**（用户已拍板 2026-08-11）
-- ~~go-ohos 获取方式~~ → 优先用现成 .so，自建为备选（子Agent调研中，非关键路径）
+- ~~go-ohos 获取方式~~ → 调研完成（yourblacksky/ohos_golang_go Go 1.25.12，须源码编译）；优先用现成 .so，自建为 M0 备选路径（与风险表"必做一次复现"一致）
 
 **M0 必须交付的工件**：
-1. **权限矩阵文档** + hdc 实测清单（🔴 第一优先）
+1. **权限矩阵文档** + hdc 实测清单（🔴 第一优先，含权限实测 SOP）
 2. **Clash Verge v2.5.3 功能基线清单**（逐项标 对齐/鸿蒙改编/不对齐+理由，作为 M2 验收基线）
 3. go-ohos 锚定表（repo/commit/版本/已知 issue）+ fallback 触发条件 + **本地独立 build .so 复现验证**
-4. NAPI ~40 函数接口面清单（指向 ClashBox proxy_core 源码文件）+ **4 个关键函数完整 TS 类型 + 错误码模型**
+4. NAPI ~40 函数接口面清单（CSV，来源=proxy_core NAPI 注册代码 grep 导出）+ **5 个关键函数完整 TS 类型（getProxies/getTraffic/validateConfig/applyConfig/startLog）+ 错误码模型**
 5. M0 子任务依赖图（go-ohos→NAPI桥→VpnExtensionAbility空壳→烟囱测试）
 6. **配置变更影响分级表**（mihomo 热加载边界 spike 产出，L1–L4）
-7. **状态唯一来源表**（逐设置项存储/合成层归属/生效路径/运行中可改性）
-8. **Mock NAPI + 契约测试 golden 文件**（让 Service 层可独立单测）
+7. **状态唯一来源表**（逐设置项存储/合成层归属/生效路径/运行中可改性，附 3 行样例：主题色/模式/节点选择）
+8. **Mock NAPI + 契约测试 golden 文件**（让 Service 层可独立单测，golden 来源见 §5 M0b）
+9. **烟囱测试脚本**（smoke.sh + smoke_assert.sh，含量化断言，作 M1/M2 回归套件）
 
 ---
 
@@ -355,13 +373,12 @@ VPN 应用是高价值目标，必须覆盖：
 |---|---|---|---|
 | R1 细节正确性 | 2026-08-11 | /tmp/hmosvpn-r1-verify-{glm,kimi,minimax}.md | 4 阻断（进程模型/线程模型/M0烟囱测试/权限前置）+ 8 重要全部采纳；RESTful 表述统一为 NAPI 直连；补配置合成管线/GeoX/前台可见性策略/功能基线清单；起步路径用户拍板复用 proxy_core |
 | R2 架构聚焦 | 2026-08-11 | /tmp/hmosvpn-r2-verify-{glm,kimi,minimax}.md | 1 阻断（运行态动态语义：Go runtime 单进程不可重启约束/配置变更影响分级 L1-L4/updateConfig 拆 validate+apply 两段）+ 全部重要（接口契约骨架/错误码模型/Go panic recover 硬性要求/核心状态机/反馈回路核心事件清单/状态归属与持久化/演进债务 fork 策略+能力空心化/安全模型/测试策略+性能预算）；进程内事件流选型 EventHub；订阅并发 single-flight；选择记忆迁移 |
+| R3 重构保真+实施就绪 | 2026-08-11 | /tmp/hmosvpn-r3-verify-{glm,minimax}.md（Kimi 超时缺席，2/2 一致成立） | 2 阻断（updateConfig 全文统一 validateConfig+applyConfig 两段式、流量通道统一日志TSFN/流量轮询）+ 9 重要强前置（权限/烟囱测试 SOP+量化断言、go-ohos 复现入排期、配置分级 spike 定义、L级→事件映射、CoreState/错误码对齐、5关键函数 TS 类型、M1 退出门量化）；事件清单补 Heartbeat、区分 TunnelState/CoreState |
+
+**R3 终审结论**：GLM"可有条件进入 M0"、MiniMax"条件性放行，闭环 2 项阻断后启动"——两项阻断已在本版（v0.3.1）修复，9 项重要强前置已写入 M0 交付物与 SOP。**设计定稿，可进入 M0。**
 
 ---
 
-## 10. 验证请求（R3：重构保真 + 实施就绪审查）
+## 10. 定稿结论
 
-请三位审查者在 v0.3 基础上做**终审**，**不要重复 R1/R2 已解决并写入本文档的问题**。聚焦：
-1. **重构保真**：v0.2→v0.3 新增的运行态语义/接口契约/状态归属/安全模型等，是否丢失或改歧义了 R1/R2 已修复的机制；新增章节与原有章节（§3 架构/§5 里程碑/§7 风险）是否一致无矛盾
-2. **实施就绪**：本文档能否直接指导 M0 开工——权限矩阵怎么实测、烟囱测试怎么跑、接口契约怎么固化，是否都有可执行的依据
-3. **跨章节一致性**：CoreState 枚举、核心事件清单、配置变更三步法、错误码模型在 §3 各处引用是否统一
-不要质疑已锁定的产品决策。若无阻断问题请明确给出"可进入 M0"结论。
+本文档经三Agent三轮评审（R1 细节/R2 架构/R3 终审）达成共识修复，所有阻断项已闭环，重要项已转化为 M0 可执行交付物与 SOP。**hmos-openvpn 设计定稿，进入 M0 工程奠基阶段。** 后续实施阶段的任务清单展开将再过一轮语义一致性审查（防模块间定义漂移）。
