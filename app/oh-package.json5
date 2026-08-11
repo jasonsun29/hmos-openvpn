@@ -1,0 +1,11 @@
+{
+  "modelVersion": "6.1.1",
+  "description": "hmos-openvpn (HarmonyOS VPN, 功能级复刻 Clash Verge)",
+  "dependencies": {
+    "yaml": "^2.8.0"
+  },
+  "devDependencies": {
+    "@ohos/hypium": "1.0.25",
+    "@ohos/hamock": "1.0.0"
+  }
+}

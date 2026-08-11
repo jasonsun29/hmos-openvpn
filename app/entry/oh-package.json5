@@ -1,0 +1,12 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "hmos-openvpn entry (UI, 对齐 Clash Verge)",
+  "main": "",
+  "author": "",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "proxy_core": "file:../proxy_core"
+  }
+}
+
