@@ -74,10 +74,15 @@ export default class ClashVpnAbility extends VpnExtensionAbility {
         }
       }
       // VPN 进程内直接 NAPI 加载（libflclash 的 updateConfig 走 Go 核心 applyConfig → currentConfig 就绪）
-      // override-dns: true + dns.enable: true —— 订阅若关闭 DNS，核心 URLTest 无法解析域名 → 测速全超时
+      // 关键修复：
+      // 1. override-dns: true + dns.enable: true —— 订阅若关闭 DNS，核心 URLTest 无法解析域名 → 测速全超时
+      // 2. proxy-server-nameserver 用普通 DNS（223.5.5.5 直连）—— DoH(https://doh.pub) 解析节点域名时
+      //    HTTPS 连接会被 TUN 捕获形成环路 → 节点解析挂起 → 连接超时（其他设备正常、手机卡死的根因）
       const cfg = new ClashConfig();
       if (cfg.dns) {
         cfg.dns.enable = true;
+        cfg.dns['proxy-server-nameserver'] = ['223.5.5.5'];
+        cfg.dns['default-nameserver'] = ['223.5.5.5'];
       }
       const params: UpdateConfigParams = {
         'profile-id': activeId,
