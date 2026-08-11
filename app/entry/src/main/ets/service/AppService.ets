@@ -10,7 +10,7 @@
  */
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
-import { SocketProxyService, getHome } from 'proxy_core';
+import { SocketProxyService, getHome, ProfileRepo } from 'proxy_core';
 import { CoreState, CoreStateType, ClashErrorCode } from '../model/CoreState';
 import { ThemeMode } from '../model/Theme';
 
@@ -20,6 +20,7 @@ export class AppService {
   private uiContext: UIContext | undefined;
   private pref: preferences.Preferences | undefined;
   private proxyService: SocketProxyService | undefined;
+  private profileRepo: ProfileRepo | undefined;
   coreState: CoreState = new CoreState();
 
   static getInstance(): AppService {
@@ -37,6 +38,9 @@ export class AppService {
     // 核心工作目录
     const home = await getHome(context);
     console.log('T2', 'home=' + home);
+    // ProfileRepo 初始化（订阅元数据 → RDB，T2.4）
+    this.profileRepo = new ProfileRepo();
+    await this.profileRepo.init(context);
     // SocketProxyService 初始化（需要 context + promptAction）
     this.proxyService = new SocketProxyService();
     if (this.uiContext) {
@@ -46,6 +50,10 @@ export class AppService {
 
   getProxyService(): SocketProxyService | undefined {
     return this.proxyService;
+  }
+
+  getProfileRepo(): ProfileRepo | undefined {
+    return this.profileRepo;
   }
 
   // ---- Preferences 状态归属（T2.4）----
