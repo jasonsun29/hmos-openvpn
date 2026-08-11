@@ -10,6 +10,7 @@
  */
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
+import fs from '@ohos.file.fs';
 import { SocketProxyService, getHome, ProfileRepo } from 'proxy_core';
 import { CoreState, CoreStateType, ClashErrorCode } from '../model/CoreState';
 import { ThemeMode } from '../model/Theme';
@@ -41,6 +42,8 @@ export class AppService {
     // ProfileRepo 初始化（订阅元数据 → RDB，T2.4）
     this.profileRepo = new ProfileRepo();
     await this.profileRepo.init(context);
+    // T7.1 GeoX 数据内置（resfile → 核心工作目录）
+    await this.initGeoIp(context);
     // SocketProxyService 初始化（需要 context + promptAction）
     this.proxyService = new SocketProxyService();
     if (this.uiContext) {
@@ -90,5 +93,44 @@ export class AppService {
   setCoreState(state: CoreStateType, subCode: ClashErrorCode = ClashErrorCode.NONE,
     message: string = ''): void {
     this.coreState = new CoreState(state, subCode, message);
+  }
+
+  // T7.1 GeoX 数据内置：resfile → 核心工作目录
+  async initGeoIp(context: common.UIAbilityContext): Promise<void> {
+    try {
+      const home = await getHome(context);
+      const geoFiles: Array<string> = ['geoip.metadb', 'GeoIP.dat', 'GeoSite.dat', 'ASN.mmdb'];
+      for (let f of geoFiles) {
+        const src = context.resourceDir + '/' + f;
+        const dst = home + '/' + f;
+        const srcBuf: Uint8Array | null = await AppService.readFile(src);
+        if (srcBuf) {
+          AppService.writeFile(dst, srcBuf);
+        }
+      }
+      console.log('T7', 'GeoX 数据就绪: ' + home);
+    } catch (e) {
+      const msg: string = (e instanceof Error) ? e.message : String(e);
+      console.error('T7', 'initGeoIp failed: ' + msg);
+    }
+  }
+
+  static async readFile(filePath: string): Promise<Uint8Array | null> {
+    try {
+      const file = await fs.open(filePath);
+      const stats = await fs.stat(filePath);
+      const buf = new ArrayBuffer(stats.size);
+      await fs.read(file.fd, buf);
+      fs.closeSync(file);
+      return new Uint8Array(buf);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static async writeFile(filePath: string, data: Uint8Array): Promise<void> {
+    const file = await fs.open(filePath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+    await fs.write(file.fd, data.buffer);
+    fs.closeSync(file);
   }
 }
