@@ -14,3 +14,7 @@ local.properties
 # macOS
 .DS_Store
 # research 目录是参考源码，不进本仓库
+# 核心二进制产物（M0b 自行编译）
+**/libs/arm64-v8a/*.so
+**/libs/x86_64/*.so
+*.hap
