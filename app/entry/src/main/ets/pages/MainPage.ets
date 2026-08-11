@@ -1,49 +1,40 @@
 /*
- * hmos-openvpn M1: 主框架页（Navigation + 左侧栏）
+ * hmos-openvpn M1: 主框架页（左侧导航栏 + 内容区）
  * 对齐 Clash Verge _layout.tsx：左侧导航栏 + 内容区
- * T1.1: M1 渲染 4 页签（home/proxies/profiles/settings），connections/rules/logs M2 占位
- * T1.2: 主题注入（@Provide colors）
- * T1.3: i18n（$r 引用）
+ * 导航项用 Button 组件（onClick 绑定可靠，Row 在真机有事件失效问题）
  */
-import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { HomePage } from './Home';
 import { ProxiesPage } from './Proxies';
 import { ProfilesPage } from './Profiles';
 import { SettingsPage } from './Settings';
-import { ThemeColors, ThemeManager, ThemeMode } from '../model/Theme';
-import { CoreState, CoreStateType } from '../model/CoreState';
+import { ThemeColors, ThemeManager } from '../model/Theme';
+import { CoreState } from '../model/CoreState';
 import { AppService } from '../service/AppService';
 
 @Entry
 @Component
 struct MainPage {
   @State currentIndex: number = 0;
-  @State isDark: boolean = false;
   @Provide colors: ThemeColors = ThemeManager.lightColors;
   @Provide coreState: CoreState = new CoreState();
   private appService: AppService = AppService.getInstance();
   private navItems: Array<NavItem> = [
-    { titleKey: 'nav_home', icon: '\uE6AE', page: 'pages/Home' },
-    { titleKey: 'nav_proxies', icon: '\uE6A8', page: 'pages/Proxies' },
-    { titleKey: 'nav_profiles', icon: '\uE726', page: 'pages/Profiles' },
-    { titleKey: 'nav_settings', icon: '\uE6F0', page: 'pages/Settings' },
-    { titleKey: 'nav_connections', icon: '\uE6B4', page: '' },
-    { titleKey: 'nav_rules', icon: '\uE6D9', page: '' },
-    { titleKey: 'nav_logs', icon: '\uE6DD', page: '' }
+    { titleKey: 'nav_home', icon: '\uE6AE' },
+    { titleKey: 'nav_proxies', icon: '\uE6A8' },
+    { titleKey: 'nav_profiles', icon: '\uE726' },
+    { titleKey: 'nav_settings', icon: '\uE6F0' },
+    { titleKey: 'nav_connections', icon: '\uE6B4' },
+    { titleKey: 'nav_rules', icon: '\uE6D9' },
+    { titleKey: 'nav_logs', icon: '\uE6DD' }
   ];
 
   aboutToAppear(): void {
-    // 初始化服务层
     const context = getContext(this) as common.UIAbilityContext;
     this.appService.init(context, this.getUIContext()).then(() => {
       console.log('T1', 'AppService initialized');
     }).catch((e: Error) => {
       console.error('T1', 'AppService init failed: ' + e.message);
-    });
-    // 恢复主题偏好
-    this.appService.getThemeMode().then((mode: ThemeMode) => {
-      // TODO(T6.1): 应用主题模式
     });
   }
 
@@ -58,25 +49,28 @@ struct MainPage {
           .margin({ top: 24, bottom: 24 })
 
         ForEach(this.navItems, (item: NavItem, index: number) => {
-          Row() {
-            Text(item.icon)
-              .fontSize(20)
-              .fontColor(this.currentIndex === index ? this.colors.primary : this.colors.textSecondary)
-              .margin({ right: 12 })
-            Text($r('app.string.' + item.titleKey))
-              .fontSize(14)
-              .fontColor(this.currentIndex === index ? this.colors.primary : this.colors.textSecondary)
+          // 用 Button 承载导航项（onClick 可靠）
+          Button() {
+            Row({ space: 12 }) {
+              Text(item.icon)
+                .fontSize(18)
+                .fontColor(this.currentIndex === index ? '#007AFF' : '#666666')
+              Text($r('app.string.' + item.titleKey))
+                .fontSize(14)
+                .fontColor(this.currentIndex === index ? '#007AFF' : '#666666')
+            }
+            .width('100%')
+            .justifyContent(FlexAlign.Start)
+            .padding({ left: 20 })
           }
           .width('100%')
           .height(44)
-          .padding({ left: 20 })
-          .borderRadius(8)
+          .type(ButtonType.Normal)
           .backgroundColor(this.currentIndex === index ? '#E8F2FF' : Color.Transparent)
+          .borderRadius(8)
           .onClick(() => {
+            console.log('NAV', 'click index=' + index + ' key=' + item.titleKey);
             this.currentIndex = index;
-            if (item.page !== '') {
-              router.pushUrl({ url: item.page });
-            }
           })
         }, (item: NavItem) => item.titleKey)
       }
@@ -85,16 +79,45 @@ struct MainPage {
       .backgroundColor(this.colors.background)
       .alignItems(HorizontalAlign.Start)
 
-      // 内容区
+      // 内容区（build 内条件渲染）
       Column() {
-        Text($r('app.string.' + this.navItems[this.currentIndex].titleKey))
-          .fontSize(22)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(this.colors.textPrimary)
+        Row() {
+          Text($r('app.string.' + this.navItems[this.currentIndex].titleKey))
+            .fontSize(22)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.colors.textPrimary)
+            .layoutWeight(1)
+          Text('idx=' + this.currentIndex)
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#FF3B30')
+            .margin({ right: 24 })
+        }
+        .width('100%')
+        .padding({ left: 24, top: 16, bottom: 16 })
+        if (this.currentIndex === 0) {
+          HomePage()
+        } else if (this.currentIndex === 1) {
+          ProxiesPage()
+        } else if (this.currentIndex === 2) {
+          ProfilesPage()
+        } else if (this.currentIndex === 3) {
+          SettingsPage()
+        } else {
+          // M2 占位页
+          Column() {
+            Text($r('app.string.' + this.navItems[this.currentIndex].titleKey))
+              .fontSize(16)
+              .fontColor(this.colors.textSecondary)
+              .margin({ top: 60 })
+            Text('M2')
+              .fontSize(13)
+              .fontColor(this.colors.textSecondary)
+              .margin({ top: 8 })
+          }
           .width('100%')
-          .padding({ left: 24, top: 16, bottom: 16 })
-        // 内容占位
-        this.pageContent(this.currentIndex)
+          .height('100%')
+        }
       }
       .layoutWeight(1)
       .height('100%')
@@ -103,37 +126,9 @@ struct MainPage {
     .width('100%')
     .height('100%')
   }
-
-  @Builder
-  pageContent(index: number) {
-    if (index === 0) {
-      HomePage()
-    } else if (index === 1) {
-      ProxiesPage()
-    } else if (index === 2) {
-      ProfilesPage()
-    } else if (index === 3) {
-      SettingsPage()
-    } else {
-      // M2 占位页
-      Column() {
-        Text($r('app.string.' + this.navItems[index].titleKey))
-          .fontSize(16)
-          .fontColor(this.colors.textSecondary)
-          .margin({ top: 60 })
-        Text('M2')
-          .fontSize(13)
-          .fontColor(this.colors.textSecondary)
-          .margin({ top: 8 })
-      }
-      .width('100%')
-      .height('100%')
-    }
-  }
 }
 
 interface NavItem {
   titleKey: string;
   icon: string;
-  page: string;
 }

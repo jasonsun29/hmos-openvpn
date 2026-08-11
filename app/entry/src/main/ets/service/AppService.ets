@@ -12,7 +12,7 @@ import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { util } from '@kit.ArkTS';
 import fs from '@ohos.file.fs';
-import { SocketProxyService, getHome, ProfileRepo } from 'proxy_core';
+import { SocketProxyService, getHome, ProfileRepo, UpdateConfigParams, ClashConfig } from 'proxy_core';
 import { CoreState, CoreStateType, ClashErrorCode } from '../model/CoreState';
 import { ThemeMode } from '../model/Theme';
 
@@ -44,7 +44,8 @@ export class AppService {
     this.profileRepo = new ProfileRepo();
     await this.profileRepo.init(context);
     // T7.1 GeoX 数据内置（resfile → 核心工作目录）
-    await this.initGeoIp(context);
+    // 注意：临时禁用排查 VPN 核心段错误（unexpected fault address 0x0）
+    // await this.initGeoIp(context);
     // SocketProxyService 初始化（需要 context + promptAction）
     this.proxyService = new SocketProxyService();
     if (this.uiContext) {
@@ -54,6 +55,34 @@ export class AppService {
 
   getProxyService(): SocketProxyService | undefined {
     return this.proxyService;
+  }
+
+  // 加载激活的订阅配置到核心（开 VPN 前必须执行，否则核心 currentConfig=nil 崩溃）
+  async loadActiveProfile(): Promise<boolean> {
+    const svc = this.proxyService;
+    if (!svc) return false;
+    const activeId = await this.getActiveProfileId();
+    if (activeId === '') return false;
+    try {
+      const params: UpdateConfigParams = {
+        'profile-id': activeId,
+        config: new ClashConfig(),
+        params: {
+          'is-patch': false,
+          'is-compatible': false,
+          'selected-map': {},
+          'override-dns': false,
+          'test-url': 'http://www.gstatic.com/generate_204'
+        }
+      };
+      await svc.loadConfig(params);
+      console.log('T5', 'loadActiveProfile OK id=' + activeId);
+      return true;
+    } catch (e) {
+      const msg: string = (e instanceof Error) ? e.message : String(e);
+      console.error('T5', 'loadActiveProfile failed: ' + msg);
+      return false;
+    }
   }
 
   getProfileRepo(): ProfileRepo | undefined {
@@ -88,6 +117,19 @@ export class AppService {
 
   async setActiveProfileId(id: string): Promise<void> {
     await this.setPrefString('active_profile_id', id);
+    // 跨进程共享：写状态文件（VPN 进程读取）
+    try {
+      const context = this.context;
+      if (context) {
+        const statePath = context.filesDir + '/active_profile.id';
+        const file = await fs.open(statePath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+        const encoder = new util.TextEncoder();
+        await fs.write(file.fd, encoder.encodeInto(id).buffer);
+        fs.closeSync(file);
+      }
+    } catch (e) {
+      console.error('T2', '写激活状态文件失败: ' + String(e));
+    }
   }
 
   // ---- 核心生命周期（T2.1）----

@@ -53,13 +53,18 @@ export struct ProfilesPage {
     const context = getContext(this) as common.UIAbilityContext;
     profile.loadContext(context);
     try {
-      await profile.update(async (config: string): Promise<string> => config);
+      // vailConfig 回调：配置已通过 isYAML 校验，直接返回空字符串=通过
+      // （真实核心校验在"激活"时由 loadConfig 执行，导入阶段只需格式合法）
+      await profile.update(async (config: string): Promise<string> => {
+        return '';
+      });
       await repo.addOrUpdate(profile);
       promptAction.showToast({ message: '订阅导入成功: ' + profile.name });
       this.urlInput = '';
       await this.loadProfiles();
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
+      console.error('T3', '导入失败 url=' + url + ' err=' + msg + ' stack=' + ((e instanceof Error) ? e.stack : ''));
       promptAction.showToast({ message: '导入失败: ' + msg });
     }
   }

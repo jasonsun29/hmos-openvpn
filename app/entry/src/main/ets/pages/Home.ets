@@ -19,8 +19,9 @@ import { promptAction } from '@kit.ArkUI';
 @Component
 export struct HomePage {
   @Consume colors: ThemeColors;
-  @State vpnOn: boolean = false;
-  @State vpnState: string = '';
+  // VPN 开关状态存 AppStorage（跨页面切换保留）
+  @StorageLink('vpnOn') vpnOn: boolean = false;
+  @StorageLink('vpnStateKey') vpnState: string = '';
   @State mode: string = ProxyMode.Rule;
   @State currentProxy: string = '--';
   @State ipInfo: string = '';
@@ -32,9 +33,18 @@ export struct HomePage {
   private trafficTimer: number = -1;
   private prevDown: number = 0;
   private prevUp: number = 0;
+  private toggling: boolean = false;
 
   aboutToAppear(): void {
-    this.vpnState = 'vpn_disconnected';
+    // 首次进入时初始化（AppStorage 已有值则不覆盖）
+    if (this.vpnState === '') {
+      this.vpnState = 'vpn_disconnected';
+    }
+    // 恢复轮询（如果 VPN 还开着）
+    if (this.vpnOn) {
+      this.startTrafficPoll();
+      this.refreshCurrentProxy();
+    }
   }
 
   aboutToDisappear(): void {
@@ -52,12 +62,14 @@ export struct HomePage {
       };
       if (isOn) {
         this.vpnState = 'vpn_requesting';
+        // 配置加载由 VPN 进程 onCreate 完成（loadActiveConfig）；此处直接启动 VPN
         await vpnExtension.startVpnExtensionAbility(vpnWant);
         this.vpnState = 'vpn_connected';
+        // 恢复轮询/RPC（核心已就绪）
         this.startTrafficPoll();
         this.refreshMode();
         this.refreshCurrentProxy();
-        // T7.3a 后台保活（长时任务+常驻通知）
+        // T7.3a 后台保活（长时任务+常驻通知，防止 VPN 进程被系统回收）
         BackgroundKeepAliveService.getInstance().start(context);
       } else {
         await vpnExtension.stopVpnExtensionAbility(vpnWant);
@@ -249,8 +261,20 @@ export struct HomePage {
         Toggle({ type: ToggleType.Switch, isOn: this.vpnOn })
           .selectedColor('#07C160')
           .onChange((isOn: boolean) => {
+            // 防抖：toggleVpn 执行期间忽略重复触发（Toggle 可能触发多次 onChange）
+            if (this.toggling) {
+              return;
+            }
+            if (isOn === this.vpnOn) {
+              return;
+            }
+            this.toggling = true;
             this.vpnOn = isOn;
-            this.toggleVpn(isOn);
+            this.toggleVpn(isOn).finally(() => {
+              setTimeout(() => {
+                this.toggling = false;
+              }, 500);
+            });
           })
       }
       .width('92%')
