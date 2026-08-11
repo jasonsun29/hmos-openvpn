@@ -1,0 +1,16 @@
+# HarmonyOS / DevEco
+.ohos/
+build/
+**/build/
+oh_modules/
+**/oh_modules/
+.hvigor/
+.idea/
+*.iml
+.cxx/
+**/CMakeFiles/
+local.properties
+.signing/
+# macOS
+.DS_Store
+# research 目录是参考源码，不进本仓库
