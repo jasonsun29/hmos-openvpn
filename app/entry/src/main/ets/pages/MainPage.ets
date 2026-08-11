@@ -6,12 +6,14 @@
  * T1.3: i18n（$r 引用）
  */
 import { router } from '@kit.ArkUI';
+import { common } from '@kit.AbilityKit';
 import { HomePage } from './Home';
 import { ProxiesPage } from './Proxies';
 import { ProfilesPage } from './Profiles';
 import { SettingsPage } from './Settings';
 import { ThemeColors, ThemeManager, ThemeMode } from '../model/Theme';
 import { CoreState, CoreStateType } from '../model/CoreState';
+import { AppService } from '../service/AppService';
 
 @Entry
 @Component
@@ -20,6 +22,7 @@ struct MainPage {
   @State isDark: boolean = false;
   @Provide colors: ThemeColors = ThemeManager.lightColors;
   @Provide coreState: CoreState = new CoreState();
+  private appService: AppService = AppService.getInstance();
   private navItems: Array<NavItem> = [
     { titleKey: 'nav_home', icon: '\uE6AE', page: 'pages/Home' },
     { titleKey: 'nav_proxies', icon: '\uE6A8', page: 'pages/Proxies' },
@@ -31,8 +34,17 @@ struct MainPage {
   ];
 
   aboutToAppear(): void {
-    // 跟随系统深浅色（后续 T6.1 支持三档切换）
-    const dc = this.getUIContext().getHostContext();
+    // 初始化服务层
+    const context = getContext(this) as common.UIAbilityContext;
+    this.appService.init(context, this.getUIContext()).then(() => {
+      console.log('T1', 'AppService initialized');
+    }).catch((e: Error) => {
+      console.error('T1', 'AppService init failed: ' + e.message);
+    });
+    // 恢复主题偏好
+    this.appService.getThemeMode().then((mode: ThemeMode) => {
+      // TODO(T6.1): 应用主题模式
+    });
   }
 
   build() {
