@@ -1,38 +1,163 @@
 /*
- * Copyright (c) 2026 Huawei Device Co., Ltd.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * hmos-openvpn M0b-1: NAPI Bridge 最小验证页
+ * 验证 libflclash.so 能加载、initClash 能初始化、核心数据函数能返回
  */
+import { initClash, getProxies, getTraffic, getVpnOptions, validateConfig } from 'libflclash.so';
+import { common } from '@kit.AbilityKit';
+import fs from '@ohos.file.fs';
 
 @Entry
 @Component
 struct Index {
-  @State message: string = 'Hello World';
+  @State message: string = '核心未加载';
+  @State detail: string = '启动中...';
+  @State loaded: boolean = false;
+
+  aboutToAppear(): void {
+    // M0b-1 自动验证：启动即依次验证核心各函数
+    this.runAutoVerify();
+  }
+
+  async runAutoVerify(): Promise<void> {
+    await this.doInitClash();
+    await this.sleep(300);
+    if (this.loaded) {
+      this.doGetProxies();
+      await this.sleep(300);
+      this.doGetTraffic();
+      await this.sleep(300);
+      this.doGetVpnOptions();
+      await this.sleep(300);
+      await this.doValidateConfig();
+      this.detail = this.detail + '\n--- 自动验证完成 ---';
+    }
+  }
+
+  sleep(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
+  }
 
   build() {
-    RelativeContainer() {
-      Text(this.message)
-        .id('HelloWorld')
-        .fontSize($r('app.float.page_text_font_size'))
+    Column({ space: 12 }) {
+      Text('hmos-openvpn M0b-1 核心验证')
+        .fontSize(20)
         .fontWeight(FontWeight.Bold)
-        .alignRules({
-          center: { anchor: '__container__', align: VerticalAlign.Center },
-          middle: { anchor: '__container__', align: HorizontalAlign.Center }
-        })
-        .onClick(() => {
-          this.message = 'Welcome';
-        })
+        .margin({ top: 40 })
+
+      Text(this.message)
+        .fontSize(16)
+        .fontColor(this.loaded ? '#07C160' : '#FF3B30')
+
+      Text(this.detail)
+        .fontSize(12)
+        .fontColor('#666')
+        .padding(12)
+        .width('90%')
+        .textAlign(TextAlign.Start)
+
+      Button('1. initClash（加载核心）')
+        .width('80%')
+        .onClick(() => this.doInitClash())
+
+      Button('2. getProxies（查节点）')
+        .width('80%')
+        .enabled(this.loaded)
+        .onClick(() => this.doGetProxies())
+
+      Button('3. getTraffic（查流量）')
+        .width('80%')
+        .enabled(this.loaded)
+        .onClick(() => this.doGetTraffic())
+
+      Button('4. getVpnOptions（查VPN配置）')
+        .width('80%')
+        .enabled(this.loaded)
+        .onClick(() => this.doGetVpnOptions())
+
+      Button('5. validateConfig（校验配置）')
+        .width('80%')
+        .enabled(this.loaded)
+        .onClick(() => this.doValidateConfig())
     }
-    .height('100%')
     .width('100%')
+    .height('100%')
+  }
+
+  async doInitClash() {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const home = context.filesDir + '/ClashBox';
+      if (!await fs.access(home)) {
+        fs.mkdirSync(home);
+      }
+      initClash(home, '1.0.0');
+      this.loaded = true;
+      this.message = '✅ 核心加载成功';
+      this.detail = 'initClash OK\n工作目录: ' + home;
+      console.log('M0b1', 'initClash success');
+    } catch (e) {
+      const msg: string = (e instanceof Error) ? e.message : String(e);
+      this.message = '❌ 核心加载失败';
+      this.detail = 'error: ' + msg;
+      console.error('M0b1', 'initClash failed: ' + msg);
+    }
+  }
+
+  doGetProxies() {
+    try {
+      const result: string = getProxies();
+      this.detail = 'getProxies 返回:\n' + result.substring(0, 500);
+      console.log('M0b1', 'getProxies len=' + result.length);
+    } catch (e) {
+      const msg: string = (e instanceof Error) ? e.message : String(e);
+      this.detail = 'getProxies error: ' + msg;
+      console.error('M0b1', 'getProxies failed: ' + msg);
+    }
+  }
+
+  doGetTraffic() {
+    try {
+      const result: string = getTraffic();
+      this.detail = 'getTraffic 返回:\n' + result;
+      console.log('M0b1', 'getTraffic: ' + result);
+    } catch (e) {
+      const msg: string = (e instanceof Error) ? e.message : String(e);
+      this.detail = 'getTraffic error: ' + msg;
+    }
+  }
+
+  doGetVpnOptions() {
+    try {
+      const result: string = getVpnOptions();
+      this.detail = 'getVpnOptions 返回:\n' + result;
+      console.log('M0b1', 'getVpnOptions: ' + result);
+    } catch (e) {
+      const msg: string = (e instanceof Error) ? e.message : String(e);
+      this.detail = 'getVpnOptions error: ' + msg;
+    }
+  }
+
+  async doValidateConfig() {
+    try {
+      const emptyProxies: Array<Object> = [];
+      const emptyGroups: Array<Object> = [];
+      const emptyRules: Array<Object> = [];
+      const minimal = JSON.stringify({
+        'mixed-port': 7890,
+        'mode': 'rule',
+        'log-level': 'info',
+        'proxies': emptyProxies,
+        'proxy-groups': emptyGroups,
+        'rules': emptyRules
+      });
+      const result: string = await validateConfig(minimal);
+      this.detail = 'validateConfig 返回:\n' + result;
+      console.log('M0b1', 'validateConfig: ' + result);
+    } catch (e) {
+      const msg: string = (e instanceof Error) ? e.message : String(e);
+      this.detail = 'validateConfig error: ' + msg;
+    }
   }
 }
