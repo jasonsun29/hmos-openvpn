@@ -8,6 +8,9 @@ import { HomePage } from './Home';
 import { ProxiesPage } from './Proxies';
 import { ProfilesPage } from './Profiles';
 import { SettingsPage } from './Settings';
+import { ConnectionsPage } from './Connections';
+import { RulesPage } from './Rules';
+import { LogsPage } from './Logs';
 import { ThemeColors, ThemeManager } from '../model/Theme';
 import { CoreState } from '../model/CoreState';
 import { AppService } from '../service/AppService';
@@ -103,6 +106,12 @@ struct MainPage {
           ProfilesPage()
         } else if (this.currentIndex === 3) {
           SettingsPage()
+        } else if (this.currentIndex === 4) {
+          ConnectionsPage()
+        } else if (this.currentIndex === 5) {
+          RulesPage()
+        } else if (this.currentIndex === 6) {
+          LogsPage()
         } else {
           // M2 占位页
           Column() {
