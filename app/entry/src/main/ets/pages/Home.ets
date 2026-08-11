@@ -1,12 +1,41 @@
 /*
  * hmos-openvpn M1: 首页
  * VPN 开关 + 模式切换 + 实时流量图 + 当前代理（对齐 Clash Verge home.tsx 卡片）
- * TODO(T5): 接入 SocketProxyService（queryTrafficNow/queryProxyGroups/vpnConfigIsLoad）
+ * T5.1 VPN 开关：startVpnExtensionAbility/stopVpnExtensionAbility（M0b-3 验证链路）
+ * TODO(T5.2/T5.3/T5.4): 模式切换/流量图/当前代理（依赖 SocketProxyService）
  */
+import { common, Want } from '@kit.AbilityKit';
+import { vpnExtension } from '@kit.NetworkKit';
+
 @Component
 export struct HomePage {
   @State vpnOn: boolean = false;
-  @State mode: string = 'rule';
+  @State vpnState: string = '未连接';
+
+  async toggleVpn(isOn: boolean): Promise<void> {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const vpnWant: Want = {
+        deviceId: '',
+        bundleName: context.abilityInfo.bundleName,
+        abilityName: 'ClashVpnAbility',
+        parameters: { requestId: Date.now() }
+      };
+      if (isOn) {
+        this.vpnState = '请求授权...';
+        await vpnExtension.startVpnExtensionAbility(vpnWant);
+        this.vpnState = '已连接';
+      } else {
+        await vpnExtension.stopVpnExtensionAbility(vpnWant);
+        this.vpnState = '未连接';
+      }
+    } catch (e) {
+      const msg: string = (e instanceof Error) ? e.message : String(e);
+      this.vpnState = '错误: ' + msg;
+      this.vpnOn = !isOn; // 回滚开关状态
+      console.error('M1', 'toggleVpn failed: ' + msg);
+    }
+  }
 
   build() {
     Column({ space: 16 }) {
@@ -22,7 +51,7 @@ export struct HomePage {
           Text('VPN 状态')
             .fontSize(16)
             .fontWeight(FontWeight.Medium)
-          Text(this.vpnOn ? '已连接' : '未连接')
+          Text(this.vpnState)
             .fontSize(13)
             .fontColor(this.vpnOn ? '#07C160' : '#999999')
         }
@@ -33,7 +62,7 @@ export struct HomePage {
           .selectedColor('#07C160')
           .onChange((isOn: boolean) => {
             this.vpnOn = isOn;
-            // TODO(T5.1): startVpnExtensionAbility / stopVpnExtensionAbility
+            this.toggleVpn(isOn);
           })
       }
       .width('92%')
