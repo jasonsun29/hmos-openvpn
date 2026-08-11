@@ -42,6 +42,7 @@
 ## 状态
 - Grill 阶段完成（10/10 决策全部确认）。
 - 设计评审：R1（4阻断+8重要）→ R2（1阻断+全部重要）→ R3 终审（2阻断+9重要强前置）全部闭环，**设计定稿 v0.3.1（docs/design-v0.3.1.md），可进入 M0**。ADR-0001 复用proxy_core、ADR-0002 单进程NAPI直连 已入库（docs/adr/）。
+- **M0a 全部完成（2026-08-11）**：①权限矩阵文档（docs/m0a-1-permission-matrix.md，无需 MANAGE_VPN）②工程骨架（app/，proxy_core 集成，BUILD SUCCESSFUL）③签名+真机安装成功（用户用 DevEco IDE 自动签名生成 default_app_*.cer/p12/p7b，绑 com.hmos.openvpn + 真机 UDID；entry-default-signed.hap 已装真机并启动，进程存活）
 - **起步路径已拍板（2026-08-11）：复用 ClashBox proxy_core 模块（Apache-2.0，独立库模块），UI 从零用 ArkTS 搭**。
 - 官方 DevEco CLI @1.2.2 已装并识别真机；**devecocli auth 已登录（Jas****，2026-08-11），但 signature generate 报"未实名"被华为云端签名服务拒绝**。
 - **签名正确路径（关键发现 2026-08-11）**：DevEco Studio IDE 的自动签名（File→Project Structure→Signing Configs→Automatically generate signature）不需要 CLI 实名——chat-1 工程（~/Documents/Qoder/2026-08-11/chat-1，bundle=com.hermes.remote）今天 02:39 用 IDE 自动签名成功，签名材料在 ~/.ohos/config/default_chat-1_*.cer/p12/p7b，绑本机真机 UDID（445EFF...），已实测安装成功。**我们的工程签名需用户在 IDE 里对 ~/harmony-vpn/app 做同样操作**。
