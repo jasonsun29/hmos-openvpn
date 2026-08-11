@@ -17,6 +17,7 @@
 - 关键参照：ClashBox(⭐4.2k, github.com/xiaobaigroup/ClashBox) 已跑通此架构（libflclash.so=NAPI），UI 用 ArkUI+Navigation；鸿蒙落地照它，功能清单照 Clash Verge
 - 核心编译：Go→ohos_golang_go c-shared 实验性；FlClash/meta kernel 更成熟；备选 Rust/C++ FFI
 - 已知限制：API 23 前 VpnConfig.routes 不生效（我们目标 23+ 规避）；后台保活有挑战；MANAGE_VPN 权限待确认
+- ClashBox 完整源码已 clone（~/harmony-vpn-research/ClashBox master 分支）：proxy_core/src/flclash 是 Go 桥接层；core 子模块=mihomo（上游 xfz347/Clash.Meta 的 **ohos 分支**，主分支已被改作他用，707 文件）；gvisor-ohos 子模块已就位（648 文件）；编译链路=go-ohos 工具链 + build.sh(GOOS=linux/cgo c-shared/-tags "ohos with_gvisor")，OHOS_NATIVE_HOME 路径与本机一致；NAPI 接口面 ~40 函数（initClash/startTun/getProxies/getTraffic/getConnections/updateConfig 等，走 ohos-napi 的 js.Env/js.Value 桥，非标准 cgo export）
 
 ## 开发环境（2026-08-11 全部就位）
 - Mac mini：DevEco Studio 已装，CLI 工具链已配 ~/.zshrc（hdc/ohpm/hvigorw 在 PATH，DEVECO_SDK_HOME 已设）
