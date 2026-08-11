@@ -61,3 +61,8 @@
   ⑦规则不生效=配置路径不匹配（ArkTS写profiles/<id>/config.yaml，Go核心读profiles/<id>.yaml）→ 激活时/启动时同步Go格式配置
 - **关键架构事实（M1 验证）**：UI进程与VPN进程(:vpn)共享filesDir（跨进程socket+文件）；clash_go.sock=Go核心IPC；ClashBox.sock=ArkTS LocalSocket；loadConfig等走clash_go.sock直连Go核心；ClashRpcType枚举27项（docs/m1-task-list.md v2已修正）。
 - **M2 待开发（2026-08-12）**：connections/rules/logs页面 + settings全量/配置编辑；前置：ClashRpcType已导出（Index.ets加export { ClashRpcType }）。
+- **M1+M2 真机验收全部通过（2026-08-12）**：出口IP 220.246.101.59(香港HKT)、YouTube可看、连通性101ms。核心链路：订阅→VPN→分流→节点→出口IP→实际联网 全通。
+- **第8个真机修复（2026-08-12，关键）**：节点域名解析环路——proxy-server-nameserver 原为 DoH(https://doh.pub/dns-query)，DoH 的 HTTPS 连接被 TUN 捕获形成环路 → 节点域名解析挂起 → 连接超时（其他设备正常、手机卡死的根因，因为 Mac Clash 有完善 protect 覆盖 DoH，鸿蒙版 protect 未覆盖）。修复：proxy-server-nameserver/default-nameserver 改普通 DNS(223.5.5.5 直连)。
+- **M2 完成（2026-08-12）**：Connections连接页(实时列表/断开/清空)、Rules规则页(配置解析)、Logs日志页(实时流/级别过滤)、配置编辑(TextArea对话框)、流量波形图(Canvas蓝下载/绿上传)、节点切换修复(Button承载+清空重建绕过ForEach key不渲染)、测速并发6批+HTTPS测试地址+testing卡死自愈(按钮不enabled禁用防卡死)。
+- **ArkUI 真机经验（2026-08-12）**：①Row+onClick在真机事件不可靠，交互元素用Button承载 ②ForEach key变更不触发重渲染，改清空重建(this.groups=[]再加载) ③Button.enabled(false)禁用后onClick不触发，避免用enabled控制防重复(用逻辑自愈代替) ④Scroll包裹内容防卡片溢出。
+- **三Agent审查**：M2 一致性审查在跑（proc_aedb25e97671）。
