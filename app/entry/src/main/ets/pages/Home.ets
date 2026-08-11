@@ -34,6 +34,10 @@ export struct HomePage {
   private prevDown: number = 0;
   private prevUp: number = 0;
   private toggling: boolean = false;
+  // 流量波形采样（最多 60 个点 = 60 秒）
+  private downHistory: Array<number> = [];
+  private upHistory: Array<number> = [];
+  private canvasCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
 
   aboutToAppear(): void {
     // 首次进入时初始化（AppStorage 已有值则不覆盖）
@@ -178,9 +182,70 @@ export struct HomePage {
       this.prevUp = up;
       this.downTotal = this.formatBytes(down);
       this.upTotal = this.formatBytes(up);
+      // 流量波形采样（1Hz 推入，最多 60 点）
+      this.downHistory.push(this.downRate);
+      this.upHistory.push(this.upRate);
+      if (this.downHistory.length > 60) {
+        this.downHistory.shift();
+        this.upHistory.shift();
+      }
+      this.drawTrafficGraph();
     } catch (e) {
       console.error('T5', 'pollTraffic: ' + String(e));
     }
+  }
+
+  // T5.3b 流量波形绘制（Canvas，对齐 Clash Verge enhanced-canvas-traffic-graph）
+  drawTrafficGraph(): void {
+    const ctx = this.canvasCtx;
+    if (!ctx) return;
+    const w = 340;
+    const h = 90;
+    ctx.clearRect(0, 0, w, h);
+    // 背景网格线
+    ctx.strokeStyle = '#303030';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i < 4; i++) {
+      const y = 15 + i * 20;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+    // 计算最大速率（避免除零）
+    let maxRate = 1;
+    for (let v of this.downHistory) {
+      if (v > maxRate) maxRate = v;
+    }
+    for (let v of this.upHistory) {
+      if (v > maxRate) maxRate = v;
+    }
+    if (maxRate <= 0) return;
+    const n = this.downHistory.length;
+    if (n < 2) return;
+    const step = w / 60;
+    // 下载曲线（蓝色）
+    ctx.strokeStyle = '#0A84FF';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const x = w - (n - i) * step;
+      const y = h - (this.downHistory[i] / maxRate) * (h - 20) - 5;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    // 上传曲线（绿色）
+    ctx.strokeStyle = '#07C160';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const x = w - (n - i) * step;
+      const y = h - (this.upHistory[i] / maxRate) * (h - 20) - 5;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
   }
 
   // T5.5 IP 信息（直连查询，本地出口）
@@ -346,6 +411,16 @@ export struct HomePage {
             .fontColor(this.colors.textSecondary)
         }
         .width('100%')
+        // T5.3b 实时流量波形（Canvas）
+        Canvas(this.canvasCtx)
+          .width(340)
+          .height(90)
+          .margin({ top: 8 })
+          .onReady(() => {
+            if (this.canvasCtx) {
+              this.drawTrafficGraph();
+            }
+          })
       }
       .width('92%')
       .padding(16)
