@@ -34,7 +34,8 @@ outputFile="libflclash.so"
 
 # 构建命令，生成共享库
 GO_OHOS="$HOME/harmony-vpn-research/go-ohos/bin/go"
-"$GO_OHOS" build -tlsmodegd -buildmode c-shared -tags "ohos with_gvisor" -gcflags="all=-N -l" -o $outputFile $sourceFile
+# 注: ClashBox 原 build.sh 有 -tlsmodegd（其定制工具链私有 flag），标准 go-ohos 1.25.12 不支持，已移除
+"$GO_OHOS" build -buildmode c-shared -tags "ohos with_gvisor" -gcflags="all=-N -l" -o $outputFile $sourceFile
 
 # 检查编译结果
 if [ -f "$outputFile" ]; then

@@ -14,10 +14,14 @@ require (
 require github.com/samber/lo v1.53.0
 
 require (
+	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/dunglas/httpsfv v1.0.2 // indirect
 	github.com/enfein/mieru/v3 v3.30.0 // indirect
+	github.com/go-chi/chi/v5 v5.2.3 // indirect
+	github.com/go-chi/render v1.0.3 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/klauspost/reedsolomon v1.12.3 // indirect
+	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/metacubex/amneziawg-go v0.0.0-20251104174305-5a0e9f7e361d // indirect
 	github.com/metacubex/ascon v0.1.0 // indirect
 	github.com/metacubex/bart v0.26.0 // indirect
@@ -43,8 +47,10 @@ require (
 	github.com/metacubex/tls v0.1.5 // indirect
 	github.com/metacubex/wireguard-go v0.0.0-20250820062549-a6cecdd7f57f // indirect
 	github.com/metacubex/yamux v0.0.0-20250918083631-dd5f17c0be49 // indirect
+	github.com/sagernet/cors v1.2.1 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
+	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 )
 
