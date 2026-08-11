@@ -21,6 +21,7 @@
 
 ## 开发环境（2026-08-11 全部就位）
 - Mac mini：DevEco Studio 已装，CLI 工具链已配 ~/.zshrc（hdc/ohpm/hvigorw 在 PATH，DEVECO_SDK_HOME 已设）
+- **官方 DevEco CLI**：`@deveco/deveco-cli`@1.2.2 已通过 npm 全局安装（~/.npm-global/bin，已入 PATH），封装 build/run/device/emulator/auth/signature/log 全套；识别真机"HUAWEI Pura X Max 典藏版"；`devecocli auth status`=未登录（构建/签名前需 `devecocli auth login`，需用户配合扫码/登录华为账号）
 - SDK：HarmonyOS 6.1.1 (API 24)，arm64
 - 真机：Pura X Max = HOP-AL10，HarmonyOS 7.0.0，arm64-v8a，hdc 已识别（序列号 6HR0226409033051）
 - 华为开发者账号：已有
@@ -39,4 +40,8 @@
 - [x] 开发节奏：自主推进、里程碑验收，仅在需用户操作的节点打扰；全程 Pura X Max 真机调试（HDC USB/无线）；华为开发者账号已有或愿注册（已确认 2026-08-11）
 
 ## 状态
-- Grill 阶段完成（10/10 决策全部确认）。待办：DevEco CLI 安装调研（deleg_8d94075a）、鸿蒙 VPN 可行性调研（deleg_3ccebf91）、三Agent设计评审、生成 CONTEXT.md/ADR。
+- Grill 阶段完成（10/10 决策全部确认）。
+- 设计评审：R1 完成（v0.1→v0.2，4阻断[进程模型同进程/线程模型TSFN/M0烟囱测试/MANAGE_VPN权限前置]+8重要全采纳）；R2 架构聚焦进行中。
+- **起步路径已拍板（2026-08-11）：复用 ClashBox proxy_core 模块（Apache-2.0，独立库模块），UI 从零用 ArkTS 搭**。
+- 官方 DevEco CLI @1.2.2 已装并识别真机；devecocli auth 未登录（构建前需用户配合登录）。
+- 待办：R2评审、CONTEXT.md/ADR、M0开工（权限矩阵+工程骨架+烟囱测试）、go-ohos调研(deleg_93e7169c)。
