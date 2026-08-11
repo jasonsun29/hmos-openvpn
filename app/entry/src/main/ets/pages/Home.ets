@@ -188,6 +188,30 @@ export struct HomePage {
     }
   }
 
+  // T8.1 连通性测试：经代理请求 generate_204，测 E2E 耗时
+  @State testResult: string = '';
+  async testConnectivity(): Promise<void> {
+    this.testResult = '测试中...';
+    const t0 = Date.now();
+    try {
+      const httpRequest = http.createHttp();
+      const resp = await httpRequest.request('https://www.gstatic.com/generate_204', {
+        connectTimeout: 10000,
+        readTimeout: 10000,
+        usingCache: false
+      });
+      const elapsed = Date.now() - t0;
+      const code = resp.responseCode;
+      this.testResult = '204 测试: HTTP ' + code + '，耗时 ' + elapsed + 'ms ' +
+        (code === 204 || code === 200 ? '✅' : '⚠️');
+      httpRequest.destroy();
+    } catch (e) {
+      const elapsed = Date.now() - t0;
+      const msg: string = (e instanceof Error) ? e.message : String(e);
+      this.testResult = '204 测试失败 (' + elapsed + 'ms): ' + msg;
+    }
+  }
+
   formatBytes(bytes: number): string {
     if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
     if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
@@ -315,6 +339,30 @@ export struct HomePage {
           .height(30)
           .backgroundColor(this.colors.primary)
           .onClick(() => this.refreshIpInfo())
+      }
+      .width('92%')
+      .padding(16)
+      .borderRadius(12)
+      .backgroundColor(this.colors.card)
+
+      // T8.1 连通性测试卡（M1 退出门）
+      Column({ space: 6 }) {
+        Row() {
+          Text('连通性测试 (generate_204)')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.colors.textPrimary)
+            .layoutWeight(1)
+          Button('测试')
+            .fontSize(12)
+            .height(30)
+            .backgroundColor('#07C160')
+            .onClick(() => this.testConnectivity())
+        }
+        .width('100%')
+        Text(this.testResult)
+          .fontSize(12)
+          .fontColor(this.testResult.startsWith('204 测试: HTTP 204') ? '#07C160' : this.colors.textSecondary)
       }
       .width('92%')
       .padding(16)

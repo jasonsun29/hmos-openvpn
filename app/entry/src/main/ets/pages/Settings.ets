@@ -208,6 +208,25 @@ export struct SettingsPage {
           .borderRadius(12)
           .backgroundColor(this.colors.card)
         }
+
+        // T8.3 日志导出
+        ListItem() {
+          Row() {
+            Text('导出诊断日志')
+              .fontSize(15)
+              .fontColor(this.colors.textPrimary)
+              .layoutWeight(1)
+            Button('导出')
+              .fontSize(12)
+              .height(32)
+              .backgroundColor(this.colors.primary)
+              .onClick(() => this.exportLogs())
+          }
+          .width('100%')
+          .padding(16)
+          .borderRadius(12)
+          .backgroundColor(this.colors.card)
+        }
       }
       .layoutWeight(1)
       .width('100%')
@@ -216,6 +235,12 @@ export struct SettingsPage {
     .width('100%')
     .height('100%')
     .backgroundColor(this.colors.background)
+  }
+
+  // T8.3 日志导出
+  async exportLogs(): Promise<void> {
+    const path = await this.appService.exportLogs();
+    promptAction.showToast({ message: '日志已导出: ' + path });
   }
 
   @Builder

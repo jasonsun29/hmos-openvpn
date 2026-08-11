@@ -10,6 +10,7 @@
  */
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
+import { util } from '@kit.ArkTS';
 import fs from '@ohos.file.fs';
 import { SocketProxyService, getHome, ProfileRepo } from 'proxy_core';
 import { CoreState, CoreStateType, ClashErrorCode } from '../model/CoreState';
@@ -139,5 +140,43 @@ export class AppService {
     if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
     if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return bytes + ' B';
+  }
+
+  // T8.3 一键日志导出：收集关键状态到日志文件
+  async exportLogs(): Promise<string> {
+    try {
+      const context = this.context;
+      if (!context) return 'no context';
+      const home = await getHome(context);
+      const logPath = home + '/diagnostics.txt';
+      const lines: Array<string> = [];
+      lines.push('=== hmos-openvpn 诊断信息 ===');
+      lines.push('时间: ' + new Date().toISOString());
+      lines.push('核心状态: ' + this.coreState.state + ' (subCode=' + this.coreState.subCode + ')');
+      lines.push('工作目录: ' + home);
+      lines.push('激活订阅: ' + (await this.getActiveProfileId()));
+      lines.push('主题: ' + (await this.getThemeMode()));
+      // 文件系统状态
+      const geoFiles: Array<string> = ['geoip.metadb', 'GeoIP.dat', 'GeoSite.dat', 'ASN.mmdb'];
+      for (let f of geoFiles) {
+        const p = home + '/' + f;
+        lines.push(f + ': ' + (await AppService.fileExists(p) ? '存在' : '缺失'));
+      }
+      const content = lines.join('\n') + '\n';
+      const encoder = new util.TextEncoder();
+      await AppService.writeFile(logPath, new Uint8Array(encoder.encodeInto(content).buffer));
+      return logPath;
+    } catch (e) {
+      const msg: string = (e instanceof Error) ? e.message : String(e);
+      return '导出失败: ' + msg;
+    }
+  }
+
+  static async fileExists(path: string): Promise<boolean> {
+    try {
+      return await fs.access(path);
+    } catch (e) {
+      return false;
+    }
   }
 }
