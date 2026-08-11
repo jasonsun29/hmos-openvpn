@@ -11,6 +11,7 @@ import { vpnExtension } from '@kit.NetworkKit';
 import { http } from '@kit.NetworkKit';
 import { ThemeColors } from '../model/Theme';
 import { AppService } from '../service/AppService';
+import { BackgroundKeepAliveService } from '../service/BackgroundKeepAliveService';
 import { SocketProxyService, UpdateConfigParams, ClashConfig, ProxyMode,
   ProxyGroup, Traffic } from 'proxy_core';
 import { promptAction } from '@kit.ArkUI';
@@ -56,10 +57,13 @@ export struct HomePage {
         this.startTrafficPoll();
         this.refreshMode();
         this.refreshCurrentProxy();
+        // T7.3a 后台保活（长时任务+常驻通知）
+        BackgroundKeepAliveService.getInstance().start(context);
       } else {
         await vpnExtension.stopVpnExtensionAbility(vpnWant);
         this.vpnState = 'vpn_disconnected';
         this.stopTrafficPoll();
+        BackgroundKeepAliveService.getInstance().stop(context);
       }
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
