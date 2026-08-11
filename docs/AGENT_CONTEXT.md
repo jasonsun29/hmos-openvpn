@@ -50,3 +50,14 @@
 - 待办：M0开工（权限矩阵实测[需用户登录devecocli签名]+工程骨架+烟囱测试）；实施任务清单展开后再过一轮语义一致性审查。
 - go-ohos 工具链调研完成（docs/go-ohos-toolchain-research.md）：官方 Gitee ohos_golang_go 已归档(Go1.22太老)；生产用 **yourblacksky/ohos_golang_go（Go 1.25.12，release-branch.go1.25）**，无预编译包须源码编译(GOTOOLCHAIN=local ./make.bash)；-tags "ohos with_gvisor" + -tlsmodegd(ARM64 TLS)；gvisor-ohos=MetaCubeX/gvisor 鸿蒙适配分支(随ClashBox子模块)；ohos-napi go mod 直拉。
 - **M0b-2 结论（2026-08-11）**：①go-ohos 工具链编译成功（yourblacksky/ohos_golang_go Go 1.25.12，make.bash + GOROOT_BOOTSTRAP=~/go-bootstrap/go），hello world c-shared .so 交叉编译验证通过（ARM aarch64 ELF）——**本地独立编译能力已确认**，能力空心化风险对冲成功；②依赖下载需 GOPROXY=https://goproxy.cn,direct（proxy.golang.org 超时）；③-tlsmodegd 是 ClashBox 定制工具链私有 flag，标准 go-ohos 不支持，已移除；④**完整复现 libflclash.so 受阻**：ClashBox 锁定的 core commit 1638edba 已被上游 force-push 删除（GitHub API 确认 No commit found），ohos 分支 HEAD(98ca8a7, 1.10.0) 与 ClashBox 依赖版本(quic-go v0.59.1/metacubex-http 等)类型不匹配编译失败——**记录为已知限制：完整复现需 ClashBox 定制 core，跟随上游节奏；生产继续用现成 libflclash.so（设计文档本来即"优先复用"）**。印证"优先复用现成.so，自建工具链仅复现/备选"决策正确。
+- **M1 核心链路真机验收通过（2026-08-12）**：订阅导入→VPN连接→代理分流→出口IP变更 全链路打通。出口IP验证：关VPN=27.38.4.121(深圳联通)，开VPN=102.217.105.28(香港节点PAN-LIAN)。分流正确：国内GeoIP/DomainSuffix直连+国外走节点(日志: match Match using 桔子云[V1-303|香港|x2.0])。
+- **M1 真机调试修复的 7 个问题（2026-08-12，纯真机才能发现）**：
+  ①HAP安装失败=ohos.permission.NOTIFICATION_CONTROLLER是系统受限权限，普通应用不能申请（安装报 grant request permissions failed code:9568289）→ 移除
+  ②导航点击无效=Row+onClick在真机事件失效 → 改用Button承载导航项
+  ③订阅导入失败=vailConfig回调契约错误（返回tempPath而非空字符串，Profile.save里非空即throw）→ 回调返回''
+  ④VPN核心段错误SIGSEGV(lib_linux.go:92 StartTUN访问currentConfig.General)=VPN进程未加载配置currentConfig=nil → ClashVpnAbility.onCreate里loadActiveConfig()（跨进程状态文件filesDir/active_profile.id + Preferences双读）
+  ⑤开关自动关=Toggle.onChange在@StorageLink同步时误触发 → 防抖(toggling标志+500ms)
+  ⑥流量全直连=tunIp未设置导致ParseConfig不加IPv4路由0.0.0.0/0 → setTunOptions()走clash_go.sock发SetOptionState(tunIp:172.19.0.1/30, routeAddress:[0.0.0.0/0,::/0])
+  ⑦规则不生效=配置路径不匹配（ArkTS写profiles/<id>/config.yaml，Go核心读profiles/<id>.yaml）→ 激活时/启动时同步Go格式配置
+- **关键架构事实（M1 验证）**：UI进程与VPN进程(:vpn)共享filesDir（跨进程socket+文件）；clash_go.sock=Go核心IPC；ClashBox.sock=ArkTS LocalSocket；loadConfig等走clash_go.sock直连Go核心；ClashRpcType枚举27项（docs/m1-task-list.md v2已修正）。
+- **M2 待开发（2026-08-12）**：connections/rules/logs页面 + settings全量/配置编辑；前置：ClashRpcType已导出（Index.ets加export { ClashRpcType }）。
