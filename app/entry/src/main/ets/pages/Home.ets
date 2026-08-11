@@ -6,11 +6,17 @@
  */
 import { common, Want } from '@kit.AbilityKit';
 import { vpnExtension } from '@kit.NetworkKit';
+import { ThemeColors } from '../model/Theme';
 
 @Component
 export struct HomePage {
+  @Consume colors: ThemeColors;
   @State vpnOn: boolean = false;
-  @State vpnState: string = '未连接';
+  @State vpnState: string = '';
+
+  aboutToAppear(): void {
+    this.vpnState = 'vpn_disconnected';
+  }
 
   async toggleVpn(isOn: boolean): Promise<void> {
     try {
@@ -22,16 +28,16 @@ export struct HomePage {
         parameters: { requestId: Date.now() }
       };
       if (isOn) {
-        this.vpnState = '请求授权...';
+        this.vpnState = 'vpn_requesting';
         await vpnExtension.startVpnExtensionAbility(vpnWant);
-        this.vpnState = '已连接';
+        this.vpnState = 'vpn_connected';
       } else {
         await vpnExtension.stopVpnExtensionAbility(vpnWant);
-        this.vpnState = '未连接';
+        this.vpnState = 'vpn_disconnected';
       }
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
-      this.vpnState = '错误: ' + msg;
+      this.vpnState = msg;
       this.vpnOn = !isOn; // 回滚开关状态
       console.error('M1', 'toggleVpn failed: ' + msg);
     }
@@ -48,12 +54,13 @@ export struct HomePage {
       // VPN 开关卡
       Row() {
         Column() {
-          Text('VPN 状态')
+          Text($r('app.string.vpn_status'))
             .fontSize(16)
             .fontWeight(FontWeight.Medium)
-          Text(this.vpnState)
+            .fontColor(this.colors.textPrimary)
+          Text(this.vpnState.startsWith('vpn_') ? $r('app.string.' + this.vpnState) : this.vpnState)
             .fontSize(13)
-            .fontColor(this.vpnOn ? '#07C160' : '#999999')
+            .fontColor(this.vpnOn ? '#07C160' : this.colors.textSecondary)
         }
         .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
@@ -68,57 +75,60 @@ export struct HomePage {
       .width('92%')
       .padding(16)
       .borderRadius(12)
-      .backgroundColor('#FFFFFF')
+      .backgroundColor(this.colors.card)
 
       // 模式切换卡
       Row() {
-        Text('代理模式')
+        Text($r('app.string.proxy_mode'))
           .fontSize(16)
           .fontWeight(FontWeight.Medium)
+          .fontColor(this.colors.textPrimary)
           .layoutWeight(1)
-        Text('TODO(T5.2): 三态切换')
+        Text('TODO(T5.2): ' + $r('app.string.mode_rule'))
           .fontSize(12)
-          .fontColor('#999999')
+          .fontColor(this.colors.textSecondary)
       }
       .width('92%')
       .padding(16)
       .borderRadius(12)
-      .backgroundColor('#FFFFFF')
+      .backgroundColor(this.colors.card)
 
       // 流量卡（占位）
       Row() {
-        Text('流量')
+        Text($r('app.string.traffic'))
           .fontSize(16)
           .fontWeight(FontWeight.Medium)
+          .fontColor(this.colors.textPrimary)
           .layoutWeight(1)
-        Text('TODO(T5.3): Canvas 流量图')
+        Text('TODO(T5.3)')
           .fontSize(12)
-          .fontColor('#999999')
+          .fontColor(this.colors.textSecondary)
       }
       .width('92%')
       .height(120)
       .padding(16)
       .borderRadius(12)
-      .backgroundColor('#FFFFFF')
+      .backgroundColor(this.colors.card)
 
       // 当前代理卡
       Row() {
-        Text('当前代理')
+        Text($r('app.string.current_proxy'))
           .fontSize(16)
           .fontWeight(FontWeight.Medium)
+          .fontColor(this.colors.textPrimary)
           .layoutWeight(1)
         Text('TODO(T5.4)')
           .fontSize(12)
-          .fontColor('#999999')
+          .fontColor(this.colors.textSecondary)
       }
       .width('92%')
       .padding(16)
       .borderRadius(12)
-      .backgroundColor('#FFFFFF')
+      .backgroundColor(this.colors.card)
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F7F8FA')
+    .backgroundColor(this.colors.background)
     .alignItems(HorizontalAlign.Center)
   }
 }

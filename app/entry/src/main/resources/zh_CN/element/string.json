@@ -1,0 +1,32 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "鸿蒙 VPN 客户端" },
+    { "name": "EntryAbility_desc", "value": "代理客户端" },
+    { "name": "EntryAbility_label", "value": "OpenVPN" },
+    { "name": "nav_home", "value": "首页" },
+    { "name": "nav_proxies", "value": "代理" },
+    { "name": "nav_profiles", "value": "订阅" },
+    { "name": "nav_settings", "value": "设置" },
+    { "name": "nav_connections", "value": "连接" },
+    { "name": "nav_rules", "value": "规则" },
+    { "name": "nav_logs", "value": "日志" },
+    { "name": "vpn_status", "value": "VPN 状态" },
+    { "name": "vpn_connected", "value": "已连接" },
+    { "name": "vpn_disconnected", "value": "未连接" },
+    { "name": "vpn_requesting", "value": "请求授权..." },
+    { "name": "proxy_mode", "value": "代理模式" },
+    { "name": "mode_rule", "value": "规则" },
+    { "name": "mode_global", "value": "全局" },
+    { "name": "mode_direct", "value": "直连" },
+    { "name": "traffic", "value": "流量" },
+    { "name": "current_proxy", "value": "当前代理" },
+    { "name": "theme", "value": "主题" },
+    { "name": "theme_light", "value": "亮色" },
+    { "name": "theme_dark", "value": "暗色" },
+    { "name": "theme_system", "value": "跟随系统" },
+    { "name": "language", "value": "语言" },
+    { "name": "language_zh", "value": "中文" },
+    { "name": "language_en", "value": "English" },
+    { "name": "port", "value": "端口 (mixed-port)" }
+  ]
+}

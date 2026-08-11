@@ -1,27 +1,39 @@
 /*
  * hmos-openvpn M1: 主框架页（Navigation + 左侧栏）
  * 对齐 Clash Verge _layout.tsx：左侧导航栏 + 内容区
- * M1 页面：home / proxies / profiles / settings（connections/rules/logs/unlock M2 占位）
+ * T1.1: M1 渲染 4 页签（home/proxies/profiles/settings），connections/rules/logs M2 占位
+ * T1.2: 主题注入（@Provide colors）
+ * T1.3: i18n（$r 引用）
  */
 import { router } from '@kit.ArkUI';
 import { HomePage } from './Home';
 import { ProxiesPage } from './Proxies';
 import { ProfilesPage } from './Profiles';
 import { SettingsPage } from './Settings';
+import { ThemeColors, ThemeManager, ThemeMode } from '../model/Theme';
+import { CoreState, CoreStateType } from '../model/CoreState';
 
 @Entry
 @Component
 struct MainPage {
   @State currentIndex: number = 0;
+  @State isDark: boolean = false;
+  @Provide colors: ThemeColors = ThemeManager.lightColors;
+  @Provide coreState: CoreState = new CoreState();
   private navItems: Array<NavItem> = [
-    { title: '首页', icon: '\uE6AE', page: 'pages/Home' },
-    { title: '代理', icon: '\uE6A8', page: 'pages/Proxies' },
-    { title: '订阅', icon: '\uE726', page: 'pages/Profiles' },
-    { title: '设置', icon: '\uE6F0', page: 'pages/Settings' },
-    { title: '连接(M2)', icon: '\uE6B4', page: '' },
-    { title: '规则(M2)', icon: '\uE6D9', page: '' },
-    { title: '日志(M2)', icon: '\uE6DD', page: '' }
+    { titleKey: 'nav_home', icon: '\uE6AE', page: 'pages/Home' },
+    { titleKey: 'nav_proxies', icon: '\uE6A8', page: 'pages/Proxies' },
+    { titleKey: 'nav_profiles', icon: '\uE726', page: 'pages/Profiles' },
+    { titleKey: 'nav_settings', icon: '\uE6F0', page: 'pages/Settings' },
+    { titleKey: 'nav_connections', icon: '\uE6B4', page: '' },
+    { titleKey: 'nav_rules', icon: '\uE6D9', page: '' },
+    { titleKey: 'nav_logs', icon: '\uE6DD', page: '' }
   ];
+
+  aboutToAppear(): void {
+    // 跟随系统深浅色（后续 T6.1 支持三档切换）
+    const dc = this.getUIContext().getHostContext();
+  }
 
   build() {
     Row() {
@@ -30,18 +42,18 @@ struct MainPage {
         Text('hmos-openvpn')
           .fontSize(16)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#007AFF')
+          .fontColor(this.colors.primary)
           .margin({ top: 24, bottom: 24 })
 
         ForEach(this.navItems, (item: NavItem, index: number) => {
           Row() {
             Text(item.icon)
               .fontSize(20)
-              .fontColor(this.currentIndex === index ? '#007AFF' : '#666666')
+              .fontColor(this.currentIndex === index ? this.colors.primary : this.colors.textSecondary)
               .margin({ right: 12 })
-            Text(item.title)
+            Text($r('app.string.' + item.titleKey))
               .fontSize(14)
-              .fontColor(this.currentIndex === index ? '#007AFF' : '#666666')
+              .fontColor(this.currentIndex === index ? this.colors.primary : this.colors.textSecondary)
           }
           .width('100%')
           .height(44)
@@ -54,18 +66,19 @@ struct MainPage {
               router.pushUrl({ url: item.page });
             }
           })
-        }, (item: NavItem) => item.title)
+        }, (item: NavItem) => item.titleKey)
       }
       .width(180)
       .height('100%')
-      .backgroundColor('#F7F8FA')
+      .backgroundColor(this.colors.background)
       .alignItems(HorizontalAlign.Start)
 
       // 内容区
       Column() {
-        Text(this.navItems[this.currentIndex].title)
+        Text($r('app.string.' + this.navItems[this.currentIndex].titleKey))
           .fontSize(22)
           .fontWeight(FontWeight.Bold)
+          .fontColor(this.colors.textPrimary)
           .width('100%')
           .padding({ left: 24, top: 16, bottom: 16 })
         // 内容占位
@@ -73,6 +86,7 @@ struct MainPage {
       }
       .layoutWeight(1)
       .height('100%')
+      .backgroundColor(this.colors.card)
     }
     .width('100%')
     .height('100%')
@@ -86,14 +100,28 @@ struct MainPage {
       ProxiesPage()
     } else if (index === 2) {
       ProfilesPage()
-    } else {
+    } else if (index === 3) {
       SettingsPage()
+    } else {
+      // M2 占位页
+      Column() {
+        Text($r('app.string.' + this.navItems[index].titleKey))
+          .fontSize(16)
+          .fontColor(this.colors.textSecondary)
+          .margin({ top: 60 })
+        Text('M2')
+          .fontSize(13)
+          .fontColor(this.colors.textSecondary)
+          .margin({ top: 8 })
+      }
+      .width('100%')
+      .height('100%')
     }
   }
 }
 
 interface NavItem {
-  title: string;
+  titleKey: string;
   icon: string;
   page: string;
 }
