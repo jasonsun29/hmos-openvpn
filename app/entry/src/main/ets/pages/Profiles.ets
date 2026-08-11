@@ -8,9 +8,11 @@
  */
 import { ThemeColors } from '../model/Theme';
 import { AppService } from '../service/AppService';
-import { Profile, ProfileType, ProfileRepo, SubscriptionInfo } from 'proxy_core';
+import { Profile, ProfileType, ProfileRepo, SubscriptionInfo, getHome } from 'proxy_core';
 import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
+import { util } from '@kit.ArkTS';
+import fs from '@ohos.file.fs';
 
 @Component
 export struct ProfilesPage {
@@ -18,6 +20,10 @@ export struct ProfilesPage {
   @State profiles: Array<Profile> = [];
   @State activeId: string = '';
   @State urlInput: string = '';
+  // 配置编辑状态
+  @State showEditor: boolean = false;
+  @State editContent: string = '';
+  private editingId: string = '';
   private appService: AppService = AppService.getInstance();
 
   aboutToAppear(): void {
@@ -149,6 +155,13 @@ export struct ProfilesPage {
                 .height(30)
                 .backgroundColor('#FF3B30')
                 .onClick(() => this.deleteProfile(p))
+              // 编辑按钮
+              Button('编辑')
+                .fontSize(12)
+                .height(30)
+                .backgroundColor(this.colors.primary)
+                .margin({ left: 4 })
+                .onClick(() => this.editProfile(p))
             }
             .width('100%')
             .padding(16)
@@ -161,11 +174,115 @@ export struct ProfilesPage {
       .layoutWeight(1)
       .width('100%')
       .padding({ left: 16, right: 16 })
+
+      // T12.1 配置编辑对话框
+      if (this.showEditor) {
+        Column() {
+          Row() {
+            Text('编辑配置')
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(this.colors.textPrimary)
+              .layoutWeight(1)
+            Button('关闭')
+              .fontSize(12)
+              .height(30)
+              .backgroundColor('#999999')
+              .onClick(() => { this.showEditor = false; })
+          }
+          .width('100%')
+
+          TextArea({ text: this.editContent })
+            .width('100%')
+            .layoutWeight(1)
+            .fontSize(12)
+            .onChange((v: string) => { this.editContent = v; })
+
+          Button('保存配置')
+            .width('100%')
+            .height(40)
+            .fontSize(14)
+            .backgroundColor(this.colors.primary)
+            .margin({ top: 8 })
+            .onClick(() => this.saveEdit())
+        }
+        .width('90%')
+        .height('70%')
+        .padding(16)
+        .borderRadius(12)
+        .backgroundColor(this.colors.card)
+        .position({ x: '5%', y: '10%' })
+        .zIndex(10)
+      }
     }
     .width('100%')
     .height('100%')
     .backgroundColor(this.colors.background)
     .alignItems(HorizontalAlign.Center)
+  }
+
+  // T12.1 配置编辑：读取配置文件 → 编辑对话框 → 保存
+  async editProfile(p: Profile): Promise<void> {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const home = await getHome(context);
+      const cfgPath = home + '/profiles/' + p.id + '/config.yaml';
+      let content: string = '';
+      if (await ProfilesPage.fileExists(cfgPath)) {
+        content = await ProfilesPage.readText(cfgPath);
+      }
+      this.editContent = content;
+      this.editingId = p.id;
+      this.showEditor = true;
+    } catch (e) {
+      promptAction.showToast({ message: '读取配置失败' });
+    }
+  }
+
+  // 保存编辑后的配置
+  async saveEdit(): Promise<void> {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const home = await getHome(context);
+      const id = this.editingId;
+      if (id === '') return;
+      const cfgPath = home + '/profiles/' + id + '/config.yaml';
+      const encoder = new util.TextEncoder();
+      const file = await fs.open(cfgPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+      await fs.write(file.fd, encoder.encodeInto(this.editContent).buffer);
+      fs.closeSync(file);
+      // 同步 Go 格式
+      const goPath = home + '/profiles/' + id + '.yaml';
+      const goFile = await fs.open(goPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+      await fs.write(goFile.fd, encoder.encodeInto(this.editContent).buffer);
+      fs.closeSync(goFile);
+      this.showEditor = false;
+      promptAction.showToast({ message: '配置已保存' });
+    } catch (e) {
+      promptAction.showToast({ message: '保存失败: ' + String(e) });
+    }
+  }
+
+  static async fileExists(path: string): Promise<boolean> {
+    try {
+      return await fs.access(path);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static async readText(filePath: string): Promise<string> {
+    try {
+      const file = await fs.open(filePath);
+      const stats = await fs.stat(filePath);
+      const buf = new ArrayBuffer(stats.size);
+      await fs.read(file.fd, buf);
+      fs.closeSync(file);
+      const decoder = new util.TextDecoder();
+      return decoder.decodeWithStream(new Uint8Array(buf));
+    } catch (e) {
+      return '';
+    }
   }
 
   formatUsage(si: SubscriptionInfo): string {
