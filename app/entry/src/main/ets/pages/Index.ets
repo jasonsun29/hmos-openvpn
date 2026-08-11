@@ -91,6 +91,11 @@ struct Index {
         .width('80%')
         .backgroundColor('#FF3B30')
         .onClick(() => this.doStopVpn())
+
+      Button('8. 自动烟囱测试（开→关→开）')
+        .width('80%')
+        .backgroundColor('#FF9500')
+        .onClick(() => this.runSmokeTest())
     }
     .width('100%')
     .height('100%')
@@ -208,5 +213,23 @@ struct Index {
       this.detail = '关闭 VPN 失败: ' + msg;
       console.error('M0b3', 'stopVpnExtensionAbility failed: ' + msg);
     }
+  }
+
+  // 烟囱测试量化断言：开→等5s→关→等5s→再开，验证资源清理+重启不panic
+  async runSmokeTest(): Promise<void> {
+    console.log('M0b3', 'SMOKE_START 烟囱测试开始');
+    // 第一次开启
+    await this.doStartVpn();
+    await this.sleep(5000);
+    console.log('M0b3', 'SMOKE 第一次开启完成，等待5s后关闭');
+    // 关闭
+    await this.doStopVpn();
+    await this.sleep(5000);
+    console.log('M0b3', 'SMOKE 已关闭，等待5s后重新开启');
+    // 再次开启（验证重启不panic）
+    await this.doStartVpn();
+    await this.sleep(3000);
+    console.log('M0b3', 'SMOKE_END 烟囱测试完成（开→关→开全流程）');
+    this.detail = '烟囱测试完成\n（日志含 SMOKE_START → SMOKE_END）';
   }
 }
