@@ -74,15 +74,20 @@ export default class ClashVpnAbility extends VpnExtensionAbility {
         }
       }
       // VPN 进程内直接 NAPI 加载（libflclash 的 updateConfig 走 Go 核心 applyConfig → currentConfig 就绪）
+      // override-dns: true + dns.enable: true —— 订阅若关闭 DNS，核心 URLTest 无法解析域名 → 测速全超时
+      const cfg = new ClashConfig();
+      if (cfg.dns) {
+        cfg.dns.enable = true;
+      }
       const params: UpdateConfigParams = {
         'profile-id': activeId,
-        config: new ClashConfig(),
-        params: {
+        'config': cfg,
+        'params': {
           'is-patch': false,
           'is-compatible': false,
           'selected-map': {},
-          'override-dns': false,
-          'test-url': 'http://www.gstatic.com/generate_204'
+          'override-dns': true,
+          'test-url': 'https://www.gstatic.com/generate_204'
         }
       };
       console.log('M0b3', 'loadActiveConfig calling updateConfig...');

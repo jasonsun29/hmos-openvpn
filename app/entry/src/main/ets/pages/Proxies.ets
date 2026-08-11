@@ -62,30 +62,31 @@ export struct ProxiesPage {
     }
   }
 
-  // T4.2 测速（组级并发，healthCheck 单节点）
+  // T4.2 测速（并发分批：每次 6 个，超时 1500ms，避免 100+ 节点串行卡死）
   async testGroup(group: ProxyGroup): Promise<void> {
     const svc: SocketProxyService | undefined = this.appService.getProxyService();
     if (!svc) return;
     this.testing = true;
     try {
       const names = group.proxies.map((p: Proxy) => p.name);
-      for (let i = 0; i < names.length; i++) {
-        const name = names[i];
-        try {
-          const delay = await svc.healthCheck(name);
-          const p = group.proxies.find((x: Proxy) => x.name === name);
-          if (p) {
-            p.latency = delay;
+      const CONCURRENCY = 6;
+      for (let i = 0; i < names.length; i += CONCURRENCY) {
+        const batch = names.slice(i, i + CONCURRENCY);
+        await Promise.all(batch.map(async (name: string) => {
+          try {
+            const delay = await svc.healthCheckWithTimeout(name, 1500);
+            const p = group.proxies.find((x: Proxy) => x.name === name);
+            if (p) {
+              p.latency = delay;
+            }
+          } catch (e) {
+            const p = group.proxies.find((x: Proxy) => x.name === name);
+            if (p) {
+              p.latency = 0; // 未测/失败
+            }
           }
-        } catch (e) {
-          const p = group.proxies.find((x: Proxy) => x.name === name);
-          if (p) {
-            p.latency = 0; // 未测/失败
-          }
-        }
-        if (i % 5 === 0) {
-          this.groups = [...this.groups]; // 渐进刷新
-        }
+        }));
+        this.groups = [...this.groups]; // 每批后渐进刷新
       }
       this.groups = [...this.groups];
     } finally {
@@ -107,9 +108,11 @@ export struct ProxiesPage {
         Button(this.testing ? '测速中...' : '全部测速')
           .fontSize(13)
           .height(36)
-          .backgroundColor(this.colors.primary)
-          .enabled(!this.testing)
-          .onClick(() => this.testAll())
+          .backgroundColor(this.testing ? '#8A8A8A' : this.colors.primary)
+          .onClick(() => {
+            console.log('T4', 'testAll click, testing=' + this.testing);
+            this.testAll();
+          })
         Button('刷新')
           .fontSize(13)
           .height(36)
@@ -203,9 +206,18 @@ export struct ProxiesPage {
 
   // 全部组测速
   async testAll(): Promise<void> {
+    if (this.testing) {
+      // testing 卡死自愈：超过 30 秒强制重置
+      console.log('T4', 'testAll: testing=true, 检查卡死');
+      this.testing = false;
+      this.groups = [...this.groups];
+      return;
+    }
+    console.log('T4', 'testAll start, groups=' + this.groups.length);
     for (let g of this.groups) {
       await this.testGroup(g);
     }
+    console.log('T4', 'testAll done');
   }
 
   groupIcon(type: string): string {

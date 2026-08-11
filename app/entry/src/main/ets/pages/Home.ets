@@ -324,7 +324,8 @@ export struct HomePage {
   }
 
   build() {
-    Column({ space: 12 }) {
+    Scroll() {
+      Column({ space: 12 }) {
       Text($r('app.string.nav_home'))
         .fontSize(22)
         .fontWeight(FontWeight.Bold)
@@ -490,11 +491,16 @@ export struct HomePage {
       .padding(16)
       .borderRadius(12)
       .backgroundColor(this.colors.card)
+      }
+      .width('100%')
+      .backgroundColor(this.colors.background)
+      .alignItems(HorizontalAlign.Center)
+      .padding({ bottom: 24 })
     }
     .width('100%')
     .height('100%')
     .backgroundColor(this.colors.background)
-    .alignItems(HorizontalAlign.Center)
+    .scrollBar(BarState.Off)
   }
 
   @Builder

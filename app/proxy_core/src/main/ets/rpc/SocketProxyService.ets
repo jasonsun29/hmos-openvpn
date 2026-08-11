@@ -154,6 +154,12 @@ export class SocketProxyService implements IClashManager {
     return info.value
   }
 
+  async healthCheckWithTimeout(proxyName: string, timeoutMs: number): Promise<number> {
+    let result = await this.sendMessageRequest(ClashRpcType.healthCheck, [proxyName, timeoutMs])
+    let info = JSON.parse(result as string) as DelayInfo
+    return info.value
+  }
+
   async startClash():Promise<boolean>{
     let json = await this.sendMessageRequest(ClashRpcType.startClash, [])
     return json as boolean
