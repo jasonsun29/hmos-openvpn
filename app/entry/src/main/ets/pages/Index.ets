@@ -3,7 +3,8 @@
  * 验证 libflclash.so 能加载、initClash 能初始化、核心数据函数能返回
  */
 import { initClash, getProxies, getTraffic, getVpnOptions, validateConfig } from 'libflclash.so';
-import { common } from '@kit.AbilityKit';
+import { common, Want } from '@kit.AbilityKit';
+import { vpnExtension } from '@kit.NetworkKit';
 import fs from '@ohos.file.fs';
 
 @Entry
@@ -80,6 +81,16 @@ struct Index {
         .width('80%')
         .enabled(this.loaded)
         .onClick(() => this.doValidateConfig())
+
+      Button('6. 开启 VPN（烟囱测试）')
+        .width('80%')
+        .backgroundColor('#07C160')
+        .onClick(() => this.doStartVpn())
+
+      Button('7. 关闭 VPN')
+        .width('80%')
+        .backgroundColor('#FF3B30')
+        .onClick(() => this.doStopVpn())
     }
     .width('100%')
     .height('100%')
@@ -158,6 +169,44 @@ struct Index {
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
       this.detail = 'validateConfig error: ' + msg;
+    }
+  }
+
+  async doStartVpn(): Promise<void> {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const vpnWant: Want = {
+        deviceId: '',
+        bundleName: context.abilityInfo.bundleName,
+        abilityName: 'ClashVpnAbility',
+        parameters: { requestId: Date.now() }
+      };
+      this.detail = '请求系统授权...\n（请在弹窗中允许）';
+      await vpnExtension.startVpnExtensionAbility(vpnWant);
+      this.detail = 'startVpnExtensionAbility 调用成功\n系统弹窗应已出现';
+      console.log('M0b3', 'startVpnExtensionAbility called');
+    } catch (e) {
+      const msg: string = (e instanceof Error) ? e.message : String(e);
+      this.detail = '启动 VPN 失败: ' + msg;
+      console.error('M0b3', 'startVpnExtensionAbility failed: ' + msg);
+    }
+  }
+
+  async doStopVpn(): Promise<void> {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const vpnWant: Want = {
+        deviceId: '',
+        bundleName: context.abilityInfo.bundleName,
+        abilityName: 'ClashVpnAbility'
+      };
+      await vpnExtension.stopVpnExtensionAbility(vpnWant);
+      this.detail = 'VPN 已请求关闭';
+      console.log('M0b3', 'stopVpnExtensionAbility called');
+    } catch (e) {
+      const msg: string = (e instanceof Error) ? e.message : String(e);
+      this.detail = '关闭 VPN 失败: ' + msg;
+      console.error('M0b3', 'stopVpnExtensionAbility failed: ' + msg);
     }
   }
 }

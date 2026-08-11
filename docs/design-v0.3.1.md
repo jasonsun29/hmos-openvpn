@@ -48,16 +48,22 @@
 
 ## 3. 架构总览
 
-### 3.1 进程模型（关键决策，R1 阻断修复）
+### 3.1 进程模型（关键决策，M0b-3 真机实测修正）
 
-**所有组件运行在应用同一进程**（entry 主进程），不启用 `isolationProcess` 隔离。
+**⚠️ 真机实测修正（2026-08-11 M0b-3 烟囱测试）**：R1 评审假设"VpnExtensionAbility 与 UIAbility 同进程"，但真机日志证实 **VpnExtensionAbility 运行在独立进程 `com.hmos.openvpn:vpn` 中**（系统强制隔离 Extension 进程）。ClashBox 的实际架构为**双进程 + Socket IPC**，已实测跑通：
 
-- `VpnExtensionAbility` 虽是 ExtensionAbility，但默认与 UIAbility **同进程**（除非显式声明隔离，我们不声明）。
-- `libflclash.so` 在该进程内 **dlopen 单例加载**，Go runtime 唯一实例。
-- UI 侧 NAPI 调用（getProxies 等）与 VPN 侧核心（startTun）**读写同一份内存态**，无跨进程 fd 传递问题。
-- TUN fd 由 VpnExtensionAbility.onCreate 在本进程内创建，直接传给同进程的 startTun(fd)，**不跨进程**。
+```
+主进程 com.hmos.openvpn（UI + Service 层 + SocketProxyService 客户端）
+   ↕ LocalSocket IPC（ClashBox.sock / clash_go.sock）
+VPN 进程 com.hmos.openvpn:vpn（VpnExtensionAbility + SocketStubService + libflclash.so 核心）
+```
 
-> 依据：ClashBox 实证此模型可行；若误启隔离进程，UI 侧将拿到空核心，数据通路崩塌（R1 MiniMax-A / Kimi-1-2）。
+- **核心（libflclash.so）在 VPN 进程内加载**（Go runtime 单例在该进程）；主进程也可另加载一份用于 UI 数据查询（getProxies/getTraffic 等），两进程各自持有核心实例。
+- TUN fd 由 VpnExtensionAbility.onCreate 在 **VPN 进程**内创建，通过 LocalSocket 传 fd 给同进程核心 startTun——**fd 不跨进程**。
+- UI 进程与 VPN 进程通过 **LocalSocket IPC**（proxy_core 的 SocketStubService/SocketProxyService）通信：UI 发 RPC 请求（ClashRpcType 枚举 29 种操作），VPN 进程执行并回传结果。
+- 实测链路（M0b-3）：`ipc_go Server is listening on clash_go.sock` → `获取tunFd: 67` → `ipc_go tunFd 67` → 核心接管 → 无 panic。
+
+> 依据：ClashBox 实测架构 + 本工程 M0b-3 真机验证。设计文档 R1 的"同进程"假设已被真机推翻，本修正为最新事实。
 
 ### 3.2 分层架构
 
@@ -74,10 +80,12 @@
 │ libflclash.so（Go c-shared，mihomo v1.17.1）      │ ← 协议/规则/TUN/流量/连接
 │ 经 ohos-napi 暴露 ~40 函数                          │
 ├──────────────────────────────────────────────────┤
-│ VpnExtensionAbility（同进程）                      │ ← 建 TUN fd → 传 startTun(fd)
+│ VpnExtensionAbility（独立进程 :vpn）              │ ← 建 TUN fd → 传 startTun(fd)
 │ 后台 dataTransfer 前台可见性策略（见 §6）            │
 └──────────────────────────────────────────────────┘
 ```
+
+> 注：VpnExtensionAbility 由系统在独立进程 `:vpn` 中运行；主进程与 VPN 进程经 LocalSocket IPC（ClashBox.sock/clash_go.sock）通信（详见 §3.1 实测修正）。
 
 ### 3.3 数据通路决策：NAPI 直连，禁用 RESTful
 
@@ -138,9 +146,9 @@ M0 增列 spike「mihomo 热加载边界实测」，产出《配置变更影响�
 
 **TUN 重建项清单**（触发时 UI 显式提示断流）：TUN 栈（system/gvisor/mixed）、DNS 模式、route-address、MTU。
 
-### 3.5.4 进程内事件流（R2 共识）
+### 3.5.4 进程内事件流（R2 共识，M0b-3 修正为跨进程）
 
-UIAbility ↔ VpnExtensionAbility 虽同进程，但 VPN 侧生命周期事件（onDestroy/系统撤销授权/隧道异常）回传 UI/Service 层的通道选型为 **EventHub**（鸿蒙同进程事件机制，无需 IPC）。数据流补一条：VPN 侧事件 → EventHub → Service 层 → UI。
+主进程 ↔ VPN 进程**不是同进程**（实测修正），VPN 侧生命周期事件（onDestroy/系统撤销授权/隧道异常）回传 UI/Service 层的通道改为：VPN 进程经 **LocalSocket IPC 回传**（SocketStubService → SocketProxyService 的 RPC 通道），UI 侧再经 **EventHub** 广播到各页面。数据流：VPN 侧事件 → LocalSocket RPC → Service 层 → EventHub → UI。
 
 ### 3.6 配置合成管线（R1 重要修复 + R2 并发/事务修复）
 
