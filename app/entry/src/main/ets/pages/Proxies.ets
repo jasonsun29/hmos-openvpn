@@ -29,6 +29,10 @@ export struct ProxiesPage {
       // M1 用 Rule 模式展示代理组
       const list = await svc.queryProxyGroups(ProxyMode.Rule);
       this.groups = list;
+      // T4 诊断：打印每组 now
+      for (let g of list) {
+        console.log('T4', 'group now: ' + g.name + ' = ' + g.now);
+      }
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
       console.error('T4', 'loadGroups failed: ' + msg);
@@ -41,14 +45,19 @@ export struct ProxiesPage {
 
   // T4.3 切换节点
   async changeNode(group: ProxyGroup, proxyName: string): Promise<void> {
+    console.log('T4', 'changeNode click: ' + group.name + ' -> ' + proxyName);
     const svc: SocketProxyService | undefined = this.appService.getProxyService();
     if (!svc) return;
     try {
       await svc.changeProxy(group.name, proxyName);
-      group.now = proxyName;
-      this.groups = [...this.groups]; // 触发刷新
+      console.log('T4', 'changeProxy OK: ' + group.name + ' -> ' + proxyName);
+      promptAction.showToast({ message: '已切换到: ' + proxyName });
+      // 强制重建列表（清空再加载，触发 ForEach 全量重建，避免 key 变更不渲染的坑）
+      this.groups = [];
+      this.loadGroups();
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
+      console.error('T4', 'changeProxy failed: ' + msg);
       promptAction.showToast({ message: '切换失败: ' + msg });
     }
   }
@@ -144,29 +153,35 @@ export struct ProxiesPage {
               // 展开的节点列表
               if (this.expanded[group.name]) {
                 ForEach(group.proxies, (p: Proxy) => {
-                  Row() {
-                    Text(p.name)
-                      .fontSize(14)
-                      .fontColor(p.name === group.now ? this.colors.primary : this.colors.textPrimary)
-                      .layoutWeight(1)
-                      .maxLines(1)
-                      .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    Text(this.formatDelay(p.latency))
-                      .fontSize(12)
-                      .fontColor(p.latency !== undefined && p.latency > 0 ? '#07C160' : this.colors.textSecondary)
-                      .margin({ right: 8 })
-                    if (p.name === group.now) {
-                      Text('✓')
+                  // 节点行（Button 承载点击，Row 在真机事件不可靠）
+                  Button() {
+                    Row() {
+                      Text(p.name)
                         .fontSize(14)
-                        .fontColor(this.colors.primary)
+                        .fontColor(p.name === group.now ? this.colors.primary : this.colors.textPrimary)
+                        .layoutWeight(1)
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      Text(this.formatDelay(p.latency))
+                        .fontSize(12)
+                        .fontColor(p.latency !== undefined && p.latency > 0 ? '#07C160' : this.colors.textSecondary)
+                        .margin({ right: 8 })
+                      if (p.name === group.now) {
+                        Text('✓')
+                          .fontSize(14)
+                          .fontColor(this.colors.primary)
+                      }
                     }
+                    .width('100%')
                   }
                   .width('100%')
-                  .padding({ left: 24, top: 8, bottom: 8 })
-                  .borderRadius(6)
+                  .height(44)
+                  .padding({ left: 24, right: 16 })
                   .backgroundColor(p.name === group.now ? '#E8F2FF' : Color.Transparent)
+                  .borderRadius(6)
+                  .type(ButtonType.Normal)
                   .onClick(() => this.changeNode(group, p.name))
-                }, (p: Proxy) => p.name + p.latency)
+                }, (p: Proxy) => p.name + p.latency + (p.name === group.now ? '_sel' : ''))
               }
             }
             .width('100%')
