@@ -3,9 +3,9 @@
  * 修复：onCreate 时加载激活的订阅配置到 Go 核心（否则 StartTUN 时 currentConfig=nil → 段错误崩溃）
  * 流程：startService（起 socket + Go 核心）→ loadActiveConfig（加载配置）→ startVpn（TUN 接管）
  */
-import { VpnExtensionAbility } from '@kit.NetworkKit';
+import { VpnExtensionAbility, socket } from '@kit.NetworkKit';
 import { Want } from '@kit.AbilityKit';
-import { SocketStubService, UpdateConfigParams, ClashConfig, getHome } from 'proxy_core';
+import { SocketStubService, UpdateConfigParams, ClashConfig, getHome, ClashRpcType } from 'proxy_core';
 import { updateConfig } from 'libflclash.so';
 import fs from '@ohos.file.fs';
 import { preferences } from '@kit.ArkData';
@@ -63,6 +63,16 @@ export default class ClashVpnAbility extends VpnExtensionAbility {
         return;
       }
       const home = await getHome(this.context);
+      // 确保 Go 侧配置格式存在：profiles/<id>.yaml（Go 核心读取路径）
+      const goCfgPath = home + '/profiles/' + activeId + '.yaml';
+      const arkCfgPath = home + '/profiles/' + activeId + '/config.yaml';
+      if (!(await ClashVpnAbility.fileExists(goCfgPath)) && (await ClashVpnAbility.fileExists(arkCfgPath))) {
+        const data = await ClashVpnAbility.readFile(arkCfgPath);
+        if (data) {
+          await ClashVpnAbility.writeFile(goCfgPath, data);
+          console.log('M0b3', '已从ArkTS格式复制Go配置: ' + activeId + '.yaml');
+        }
+      }
       // VPN 进程内直接 NAPI 加载（libflclash 的 updateConfig 走 Go 核心 applyConfig → currentConfig 就绪）
       const params: UpdateConfigParams = {
         'profile-id': activeId,
@@ -78,9 +88,44 @@ export default class ClashVpnAbility extends VpnExtensionAbility {
       console.log('M0b3', 'loadActiveConfig calling updateConfig...');
       const result: string = await updateConfig(JSON.stringify(params));
       console.log('M0b3', 'loadActiveConfig result=[' + result + '] id=' + activeId);
+      // 设置 TUN 选项（关键：tunIp 必须设置，否则 ParseConfig 不添加 IPv4 路由 0.0.0.0/0 → 流量不走 TUN）
+      await this.setTunOptions();
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
       console.error('M0b3', 'loadActiveConfig failed: ' + msg);
+    }
+  }
+
+  // 设置 TUN 选项（tunIp/ipv6/routeAddress），对齐 ClashBox loadVpnOptions
+  async setTunOptions(): Promise<void> {
+    try {
+      const socketPath = this.context.filesDir + '/clash_go.sock';
+      const options: TunRawOptions = {
+        tunIp: '172.19.0.1/30',
+        ipv6: true,
+        routeAddress: ['0.0.0.0/0', '::/0'],
+        accessControl: { mode: '', acceptList: [], rejectList: [] } as AccessControlOptions
+      };
+      const tcp: socket.LocalSocket = socket.constructLocalSocketInstance();
+      const result: string = await new Promise<string>((resolve, reject) => {
+        tcp.on('message', (value: socket.LocalSocketMessageInfo) => {
+          const text = new util.TextDecoder().decodeToString(new Uint8Array(value.message));
+          resolve(text);
+          tcp.close();
+        });
+        tcp.on('error', () => {
+          reject(new Error('socket error'));
+        });
+        tcp.connect({ address: { address: socketPath }, timeout: 1000 }).then(() => {
+          tcp.send({ data: JSON.stringify({ method: ClashRpcType.setOptionState, params: [JSON.stringify(options)] }) });
+        }).catch((e: Error) => {
+          reject(e);
+        });
+      });
+      console.log('M0b3', 'setTunOptions result=[' + result + ']');
+    } catch (e) {
+      const msg: string = (e instanceof Error) ? e.message : String(e);
+      console.error('M0b3', 'setTunOptions failed: ' + msg);
     }
   }
 
@@ -94,4 +139,45 @@ export default class ClashVpnAbility extends VpnExtensionAbility {
       // lock 文件不存在时忽略
     }
   }
+
+  // ---- 静态文件工具（跨进程共享 filesDir）----
+  static async fileExists(path: string): Promise<boolean> {
+    try {
+      return await fs.access(path);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static async readFile(filePath: string): Promise<Uint8Array | null> {
+    try {
+      const file = await fs.open(filePath);
+      const stats = await fs.stat(filePath);
+      const buf = new ArrayBuffer(stats.size);
+      await fs.read(file.fd, buf);
+      fs.closeSync(file);
+      return new Uint8Array(buf);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static async writeFile(filePath: string, data: Uint8Array): Promise<void> {
+    const file = await fs.open(filePath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+    await fs.write(file.fd, data.buffer);
+    fs.closeSync(file);
+  }
+}
+
+interface TunRawOptions {
+  tunIp: string;
+  ipv6: boolean;
+  routeAddress: Array<string>;
+  accessControl: AccessControlOptions;
+}
+
+interface AccessControlOptions {
+  mode: string;
+  acceptList: Array<string>;
+  rejectList: Array<string>;
 }

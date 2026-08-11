@@ -44,8 +44,8 @@ export class AppService {
     this.profileRepo = new ProfileRepo();
     await this.profileRepo.init(context);
     // T7.1 GeoX 数据内置（resfile → 核心工作目录）
-    // 注意：临时禁用排查 VPN 核心段错误（unexpected fault address 0x0）
-    // await this.initGeoIp(context);
+    // 之前崩溃根因已定位为 currentConfig=nil（已修复），geo 数据是规则匹配必需，恢复启用
+    await this.initGeoIp(context);
     // SocketProxyService 初始化（需要 context + promptAction）
     this.proxyService = new SocketProxyService();
     if (this.uiContext) {
@@ -126,6 +126,16 @@ export class AppService {
         const encoder = new util.TextEncoder();
         await fs.write(file.fd, encoder.encodeInto(id).buffer);
         fs.closeSync(file);
+        // 同步 Go 侧配置格式：profiles/<id>.yaml（Go 核心读取路径，与 <id>/config.yaml 并存）
+        const srcPath = context.filesDir + '/ClashBox/profiles/' + id + '/config.yaml';
+        const dstPath = context.filesDir + '/ClashBox/profiles/' + id + '.yaml';
+        if (await AppService.fileExists(srcPath)) {
+          const data = await AppService.readFile(srcPath);
+          if (data) {
+            await AppService.writeFile(dstPath, data);
+            console.log('T2', '已同步Go配置格式: ' + id + '.yaml');
+          }
+        }
       }
     } catch (e) {
       console.error('T2', '写激活状态文件失败: ' + String(e));

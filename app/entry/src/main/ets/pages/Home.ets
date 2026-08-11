@@ -185,19 +185,42 @@ export struct HomePage {
 
   // T5.5 IP 信息（直连查询，本地出口）
   async refreshIpInfo(): Promise<void> {
-    try {
-      const httpRequest = http.createHttp();
-      const resp = await httpRequest.request('https://api.ipify.org?format=json', {
-        connectTimeout: 5000,
-        readTimeout: 5000
-      });
-      const json = JSON.parse(resp.result as string) as Record<string, string>;
-      this.ipInfo = json['ip'] ?? '--';
-      httpRequest.destroy();
-    } catch (e) {
-      this.ipInfo = '--';
-      console.error('T5', 'refreshIpInfo: ' + String(e));
+    // 多服务 fallback：ipify（海外）→ ip.sb → ipip（国内可达）
+    const services: Array<string> = [
+      'https://api.ipify.org?format=json',
+      'https://api.ip.sb/ip',
+      'https://myip.ipip.net'
+    ];
+    for (let i = 0; i < services.length; i++) {
+      try {
+        const httpRequest = http.createHttp();
+        const resp = await httpRequest.request(services[i], {
+          connectTimeout: 8000,
+          readTimeout: 8000,
+          usingCache: false
+        });
+        const body: string = resp.result as string;
+        httpRequest.destroy();
+        // 解析 IP（三种格式：json / 纯文本 / 中文文本）
+        let ip: string = '';
+        try {
+          const json = JSON.parse(body) as Record<string, string>;
+          ip = json['ip'] ?? '';
+        } catch (e) {
+          // 非 JSON，尝试提取 IPv4
+          const m = body.match(/(\d{1,3}\.){3}\d{1,3}/);
+          ip = m ? m[0] : body.trim();
+        }
+        if (ip !== '' && ip.length < 40) {
+          this.ipInfo = ip;
+          return;
+        }
+      } catch (e) {
+        const msg: string = (e instanceof Error) ? e.message : JSON.stringify(e);
+        console.error('T5', 'refreshIpInfo svc' + i + ' failed: ' + msg);
+      }
     }
+    this.ipInfo = '查询失败（网络不可达）';
   }
 
   // T8.1 连通性测试：经代理请求 generate_204，测 E2E 耗时

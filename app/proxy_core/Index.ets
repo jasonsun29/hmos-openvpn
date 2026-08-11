@@ -1,6 +1,7 @@
 export { MainPage } from './src/main/ets/components/MainPage'
 export { SocketProxyService } from './src/main/ets/rpc/SocketProxyService'
 export { SocketStubService } from './src/main/ets/rpc/SocketStubService'
+export { ClashRpcType } from "./src/main/ets/rpc/IClashManager";
 export { Profile, ProfileType } from './src/main/ets/Profile'
 export { ProfileRepo } from './src/main/ets/ProfileRepo'
 export { UpdateConfigParams } from "./src/main/ets/models/ClashConfig";
