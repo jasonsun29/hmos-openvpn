@@ -44,4 +44,5 @@
 - 设计评审：R1 完成（v0.1→v0.2，4阻断[进程模型同进程/线程模型TSFN/M0烟囱测试/MANAGE_VPN权限前置]+8重要全采纳）；R2 架构聚焦进行中。
 - **起步路径已拍板（2026-08-11）：复用 ClashBox proxy_core 模块（Apache-2.0，独立库模块），UI 从零用 ArkTS 搭**。
 - 官方 DevEco CLI @1.2.2 已装并识别真机；devecocli auth 未登录（构建前需用户配合登录）。
-- 待办：R2评审、CONTEXT.md/ADR、M0开工（权限矩阵+工程骨架+烟囱测试）、go-ohos调研(deleg_93e7169c)。
+- 待办：R2评审、CONTEXT.md/ADR、M0开工（权限矩阵+工程骨架+烟囱测试）。
+- go-ohos 工具链调研完成（docs/go-ohos-toolchain-research.md）：官方 Gitee ohos_golang_go 已归档(Go1.22太老)；生产用 **yourblacksky/ohos_golang_go（Go 1.25.12，release-branch.go1.25）**，无预编译包须源码编译(GOTOOLCHAIN=local ./make.bash)；-tags "ohos with_gvisor" + -tlsmodegd(ARM64 TLS)；gvisor-ohos=MetaCubeX/gvisor 鸿蒙适配分支(随ClashBox子模块)；ohos-napi go mod 直拉。印证"优先复用现成.so，自建工具链仅复现/备选"决策正确。
