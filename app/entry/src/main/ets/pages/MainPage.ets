@@ -36,6 +36,11 @@ struct MainPage {
     const context = getContext(this) as common.UIAbilityContext;
     this.appService.init(context, this.getUIContext()).then(() => {
       console.log('T1', 'AppService initialized');
+      // P3-10 状态恢复：AppStorage 里 vpnOn 仍为 true（VPN 进程可能还活着）时立即验活，
+      // 心跳结果驱动 vpnAlive/vpnOn 复位（原逻辑散在 Home.onPageShow，抽到主框架更全面）
+      if (AppStorage.get<boolean>('vpnOn') === true) {
+        this.appService.pingCoreNow();
+      }
     }).catch((e: Error) => {
       console.error('T1', 'AppService init failed: ' + e.message);
     });

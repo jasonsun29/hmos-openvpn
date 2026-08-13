@@ -5,7 +5,8 @@
 import { initClash, getProxies, getTraffic, getVpnOptions, validateConfig } from 'libflclash.so';
 import { common, Want } from '@kit.AbilityKit';
 import { vpnExtension } from '@kit.NetworkKit';
-import fs from '@ohos.file.fs';
+// P2-13 文件 API 统一：doInitClash 创建工作目录用 fileIo
+import { fileIo } from '@kit.CoreFileKit';
 
 @Entry
 @Component
@@ -105,8 +106,9 @@ struct Index {
     try {
       const context = getContext(this) as common.UIAbilityContext;
       const home = context.filesDir + '/ClashBox';
-      if (!await fs.access(home)) {
-        fs.mkdirSync(home);
+      // P2-13 sync API：fileIo.accessSync / mkdirSync 替代 fs.access / fs.mkdirSync
+      if (!fileIo.accessSync(home)) {
+        fileIo.mkdirSync(home);
       }
       initClash(home, '1.0.0');
       this.loaded = true;

@@ -5,6 +5,9 @@
  * T5.3 实时流量图（queryTrafficNow 1Hz 轮询 + 差分，Canvas 绘制）
  * T5.4 当前代理卡（queryProxyGroups 取 GLOBAL 组 now）
  * T5.5 IP 信息卡（api.ipify.org，超时 5s 显示 "--"）
+ * 修复：
+ *   P0-4 监听 AppStorage 'vpnAlive'，false 时自动复位 vpnOn（防假连接）
+ *   P0-5 setMode() test-url 统一 HTTPS（与 ClashVpnAbility 一致）
  */
 import { common, Want } from '@kit.AbilityKit';
 import { vpnExtension } from '@kit.NetworkKit';
@@ -13,8 +16,10 @@ import { ThemeColors } from '../model/Theme';
 import { AppService } from '../service/AppService';
 import { BackgroundKeepAliveService } from '../service/BackgroundKeepAliveService';
 import { SocketProxyService, UpdateConfigParams, ClashConfig, ProxyMode,
-  ProxyGroup, Traffic } from 'proxy_core';
+  ProxyGroup, Traffic, SelectedMapStore } from 'proxy_core';
 import { promptAction } from '@kit.ArkUI';
+// P3-5 统一异步错误处理
+import { tryRunAsync } from '../utils/AsyncUtils';
 
 @Component
 export struct HomePage {
@@ -22,6 +27,28 @@ export struct HomePage {
   // VPN 开关状态存 AppStorage（跨页面切换保留）
   @StorageLink('vpnOn') vpnOn: boolean = false;
   @StorageLink('vpnStateKey') vpnState: string = '';
+  // P0-4 监听 VPN 存活心跳（false 时自动复位 vpnOn）
+  @StorageLink('vpnAlive') @Watch('onVpnAliveChanged') vpnAlive: boolean = false;
+  // P1-7 监听代理切换事件，实时刷新当前代理显示
+  @StorageLink('currentProxyName') @Watch('onCurrentProxyChanged') currentProxyName: string = '';
+
+  onVpnAliveChanged(): void {
+    // P0-4 心跳探测到核心挂了 → 复位 UI 状态，防“假连接”bug
+    if (!this.vpnAlive && this.vpnOn) {
+      console.warn('Home', 'vpnAlive → false, 复位 vpnOn');
+      this.vpnOn = false;
+      this.vpnState = 'vpn_disconnected';
+      this.stopTrafficPoll();
+    }
+  }
+
+  // P1-7 Proxies 页切换节点后，实时刷新当前代理显示
+  onCurrentProxyChanged(): void {
+    if (this.currentProxyName !== '') {
+      this.currentProxy = this.currentProxyName;
+      console.log('Home', 'currentProxy updated via StorageLink: ' + this.currentProxyName);
+    }
+  }
   @State mode: string = ProxyMode.Rule;
   @State currentProxy: string = '--';
   @State ipInfo: string = '';
@@ -29,12 +56,17 @@ export struct HomePage {
   @State upRate: number = 0;
   @State downTotal: string = '0 B';
   @State upTotal: string = '0 B';
+  // P3-1 波形图 Canvas 实际尺寸（onAreaChange 自适应容器宽度）
+  @State canvasW: number = 340;
+  @State canvasH: number = 90;
   private appService: AppService = AppService.getInstance();
   private trafficTimer: number = -1;
   private prevDown: number = 0;
   private prevUp: number = 0;
   private toggling: boolean = false;
   // 流量波形采样（最多 60 个点 = 60 秒）
+  // P3-2 采样窗口上限常量（批量裁剪阈值 = 2 倍上限）
+  private static readonly MAX_HISTORY_POINTS = 60;
   private downHistory: Array<number> = [];
   private upHistory: Array<number> = [];
   private canvasCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
@@ -48,7 +80,22 @@ export struct HomePage {
     if (this.vpnOn) {
       this.startTrafficPoll();
       this.refreshCurrentProxy();
+      // P1-11 应用回到前台时立即 pingCore 验活（setInterval 可能被系统挂起，需手动补一次）
+      this.appService.pingCoreNow();
     }
+  }
+
+  onPageShow(): void {
+    // P1-11 页面进入前台：与退后台时可能 socket 断开的场景，强制刷新
+    if (this.vpnOn) {
+      this.refreshCurrentProxy();
+      this.appService.pingCoreNow();
+    }
+  }
+
+  onPageHide(): void {
+    // P1-11 页面退后台：停止流量轮询节省资源（避免 setInterval 反复打错误日志）
+    this.stopTrafficPoll();
   }
 
   aboutToDisappear(): void {
@@ -73,24 +120,40 @@ export struct HomePage {
         this.startTrafficPoll();
         this.refreshMode();
         this.refreshCurrentProxy();
+        // P0-4 启动心跳检测（VPN 进程被杀时系统不通知，需自建心跳）
+        this.appService.startHeartbeat();
         // T7.3a 后台保活（长时任务+常驻通知，防止 VPN 进程被系统回收）
         BackgroundKeepAliveService.getInstance().start(context);
       } else {
         await vpnExtension.stopVpnExtensionAbility(vpnWant);
         this.vpnState = 'vpn_disconnected';
         this.stopTrafficPoll();
+        // P0-4 停止心跳
+        this.appService.stopHeartbeat();
         BackgroundKeepAliveService.getInstance().stop(context);
       }
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
-      this.vpnState = msg;
+      this.vpnState = 'vpn_disconnected';
       this.vpnOn = !isOn; // 回滚
-      console.error('M1', 'toggleVpn failed: ' + msg);
+      // P1-10 识别授权失败场景，提示用户具体原因
+      if (/cancel|denied|拒绝|取消/i.test(msg)) {
+        promptAction.showToast({ message: 'VPN 授权已取消' });
+      } else if (/policy|forbidden|不允许|90024|95100002/i.test(msg)) {
+        promptAction.showToast({ message: '系统策略不允许启动 VPN（检查权限设置）' });
+      } else {
+        promptAction.showToast({ message: 'VPN 启动失败: ' + msg });
+      }
+      console.error('Home', 'toggleVpn failed: ' + msg);
     }
   }
 
   // T5.2 模式切换（patch 下发）
+  // P3 全局模式语义：GLOBAL 模式 = 全部流量走 GLOBAL 组选中的节点；
+  // 首次切全局时把当前规则模式选中节点继承给 GLOBAL（避免落 DIRECT 直连）；
+  // 模式与选择均持久化（SelectedMapStore），下次打开保持上次状态。
   async setMode(mode: string): Promise<void> {
+    console.log('Home', 'setMode click: ' + mode);
     const svc: SocketProxyService | undefined = this.appService.getProxyService();
     if (!svc) return;
     try {
@@ -98,6 +161,21 @@ export struct HomePage {
       if (activeId === '') {
         promptAction.showToast({ message: '请先在订阅页激活一个订阅' });
         return;
+      }
+      const context = getContext(this) as common.UIAbilityContext;
+      // 按钮传小写（global/rule/direct），ProxyMode 枚举为大写 → 统一大写比较
+      if (mode.toUpperCase() === ProxyMode.Global) {
+        const selected = await SelectedMapStore.load(context, activeId);
+        if (!selected['GLOBAL']) {
+          // 从未给 GLOBAL 选过节点：继承当前规则模式的主组选中节点
+          const groups = await svc.queryProxyGroups(ProxyMode.Rule);
+          const main = groups.length > 0 ? groups[0] : undefined;
+          if (main && main.now !== '' && main.now !== 'DIRECT') {
+            await svc.changeProxy('GLOBAL', main.now);
+            await SelectedMapStore.record(context, activeId, 'GLOBAL', main.now);
+            console.log('Home', '首次切全局：GLOBAL 继承当前节点 ' + main.now);
+          }
+        }
       }
       const cfg = new ClashConfig();
       cfg.mode = mode as ProxyMode;
@@ -107,13 +185,16 @@ export struct HomePage {
         params: {
           'is-patch': true,
           'is-compatible': false,
-          'selected-map': {},
+          'selected-map': await SelectedMapStore.load(context, activeId),
           'override-dns': false,
-          'test-url': 'http://www.gstatic.com/generate_204'
+          // P0-5 统一 HTTPS（与 ClashVpnAbility 的 test-url 一致）
+          'test-url': 'https://www.gstatic.com/generate_204'
         }
       };
       await svc.loadConfig(params);
       this.mode = mode;
+      await SelectedMapStore.saveMode(context, mode);
+      AppStorage.setOrCreate('vpnMode', mode);
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
       promptAction.showToast({ message: '模式切换失败: ' + msg });
@@ -124,30 +205,39 @@ export struct HomePage {
   async refreshCurrentProxy(): Promise<void> {
     const svc: SocketProxyService | undefined = this.appService.getProxyService();
     if (!svc) return;
-    try {
+    await tryRunAsync('Home.refreshCurrentProxy', async (): Promise<void> => {
       const groups = await svc.queryProxyGroups(ProxyMode.Global);
       const g = groups.find((x: ProxyGroup) => x.name === 'GLOBAL');
       if (g) {
         this.currentProxy = g.now;
       }
-    } catch (e) {
-      const msg: string = (e instanceof Error) ? e.message : String(e);
-      console.error('T5', 'refreshCurrentProxy: ' + msg);
-    }
+    });
   }
 
   async refreshMode(): Promise<void> {
-    // 从代理组推断当前模式（Rule 组存在=Rule 模式）
     const svc: SocketProxyService | undefined = this.appService.getProxyService();
     if (!svc) return;
-    try {
+    await tryRunAsync('Home.refreshMode', async (): Promise<void> => {
+      // P3 持久化模式优先（上次选什么模式，重启后还是什么模式）
+      const context = getContext(this) as common.UIAbilityContext;
+      const persisted = await SelectedMapStore.loadMode(context);
+      if (persisted !== '') {
+        // 统一大写比较（按钮值是小写 global/rule/direct）
+        const p = persisted.toUpperCase();
+        if (p === ProxyMode.Global || p === ProxyMode.Direct || p === ProxyMode.Rule) {
+          this.mode = persisted;
+          AppStorage.setOrCreate('vpnMode', persisted);
+          console.log('Home', '恢复持久化模式: ' + persisted);
+          return;
+        }
+      }
+      // 无持久化记录（首次）：从代理组推断（Rule 组存在=Rule 模式）
       const groups = await svc.queryProxyGroups(ProxyMode.Rule);
       if (groups.length > 0) {
         this.mode = ProxyMode.Rule;
+        AppStorage.setOrCreate('vpnMode', ProxyMode.Rule);
       }
-    } catch (e) {
-      console.error('T5', 'refreshMode: ' + String(e));
-    }
+    });
   }
 
   // T5.3 流量轮询（1Hz 差分）
@@ -169,7 +259,7 @@ export struct HomePage {
   async pollTraffic(): Promise<void> {
     const svc: SocketProxyService | undefined = this.appService.getProxyService();
     if (!svc) return;
-    try {
+    await tryRunAsync('Home.pollTraffic', async (): Promise<void> => {
       const t: Traffic = await svc.queryTrafficNow(true);
       const down: number = t.downRaw ?? 0;
       const up: number = t.upRaw ?? 0;
@@ -180,32 +270,34 @@ export struct HomePage {
       }
       this.prevDown = down;
       this.prevUp = up;
-      this.downTotal = this.formatBytes(down);
-      this.upTotal = this.formatBytes(up);
+      this.downTotal = AppService.formatBytes(down);
+      this.upTotal = AppService.formatBytes(up);
       // 流量波形采样（1Hz 推入，最多 60 点）
       this.downHistory.push(this.downRate);
       this.upHistory.push(this.upRate);
-      if (this.downHistory.length > 60) {
-        this.downHistory.shift();
-        this.upHistory.shift();
+      // P3-2 批量裁剪替代逐个 shift()：shift 每次 O(n) 搬移，
+      // 攒到 2 倍上限再一次剪掉，摊还 O(1)
+      if (this.downHistory.length > HomePage.MAX_HISTORY_POINTS * 2) {
+        this.downHistory.splice(0, this.downHistory.length - HomePage.MAX_HISTORY_POINTS);
+        this.upHistory.splice(0, this.upHistory.length - HomePage.MAX_HISTORY_POINTS);
       }
       this.drawTrafficGraph();
-    } catch (e) {
-      console.error('T5', 'pollTraffic: ' + String(e));
-    }
+    });
   }
 
   // T5.3b 流量波形绘制（Canvas，对齐 Clash Verge enhanced-canvas-traffic-graph）
   drawTrafficGraph(): void {
     const ctx = this.canvasCtx;
     if (!ctx) return;
-    const w = 340;
-    const h = 90;
+    // P3-1 用 onAreaChange 实测尺寸，随容器宽度自适应
+    const w = this.canvasW;
+    const h = this.canvasH;
     ctx.clearRect(0, 0, w, h);
-    // 背景网格线
+    // 背景网格线（行数随高度动态）
     ctx.strokeStyle = '#303030';
     ctx.lineWidth = 0.5;
-    for (let i = 0; i < 4; i++) {
+    const gridRows = Math.floor(h / 20);
+    for (let i = 0; i < gridRows; i++) {
       const y = 15 + i * 20;
       ctx.beginPath();
       ctx.moveTo(0, y);
@@ -213,15 +305,18 @@ export struct HomePage {
       ctx.stroke();
     }
     // 计算最大速率（避免除零）
+    // 循环前取局部引用：避免循环内反复读 this.downHistory（hp-arkui-no-state-var-access-in-loop）
+    const down = this.downHistory;
+    const up = this.upHistory;
     let maxRate = 1;
-    for (let v of this.downHistory) {
+    for (let v of down) {
       if (v > maxRate) maxRate = v;
     }
-    for (let v of this.upHistory) {
+    for (let v of up) {
       if (v > maxRate) maxRate = v;
     }
     if (maxRate <= 0) return;
-    const n = this.downHistory.length;
+    const n = down.length;
     if (n < 2) return;
     const step = w / 60;
     // 下载曲线（蓝色）
@@ -230,7 +325,7 @@ export struct HomePage {
     ctx.beginPath();
     for (let i = 0; i < n; i++) {
       const x = w - (n - i) * step;
-      const y = h - (this.downHistory[i] / maxRate) * (h - 20) - 5;
+      const y = h - (down[i] / maxRate) * (h - 20) - 5;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
@@ -241,7 +336,7 @@ export struct HomePage {
     ctx.beginPath();
     for (let i = 0; i < n; i++) {
       const x = w - (n - i) * step;
-      const y = h - (this.upHistory[i] / maxRate) * (h - 20) - 5;
+      const y = h - (up[i] / maxRate) * (h - 20) - 5;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
@@ -256,6 +351,9 @@ export struct HomePage {
       'https://api.ip.sb/ip',
       'https://myip.ipip.net'
     ];
+    // lint 规则 hp-arkui-no-state-var-access-in-loop：循环内不写 @State，
+    // 先在局部变量累积，循环外一次性赋值
+    let found: string = '';
     for (let i = 0; i < services.length; i++) {
       try {
         const httpRequest = http.createHttp();
@@ -277,15 +375,15 @@ export struct HomePage {
           ip = m ? m[0] : body.trim();
         }
         if (ip !== '' && ip.length < 40) {
-          this.ipInfo = ip;
-          return;
+          found = ip;
+          break;
         }
       } catch (e) {
         const msg: string = (e instanceof Error) ? e.message : JSON.stringify(e);
-        console.error('T5', 'refreshIpInfo svc' + i + ' failed: ' + msg);
+        console.error('Home', 'refreshIpInfo svc' + i + ' failed: ' + msg);
       }
     }
-    this.ipInfo = '查询失败（网络不可达）';
+    this.ipInfo = found !== '' ? found : '查询失败（网络不可达）';
   }
 
   // T8.1 连通性测试：经代理请求 generate_204，测 E2E 耗时
@@ -312,15 +410,9 @@ export struct HomePage {
     }
   }
 
-  formatBytes(bytes: number): string {
-    if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
-    if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
-    if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return bytes + ' B';
-  }
-
+  // P3-3 公共化：本页删除重复实现，统一走 AppService.formatBytes
   formatRate(bytes: number): string {
-    return this.formatBytes(bytes) + '/s';
+    return AppService.formatBytes(bytes) + '/s';
   }
 
   build() {
@@ -412,11 +504,16 @@ export struct HomePage {
             .fontColor(this.colors.textSecondary)
         }
         .width('100%')
-        // T5.3b 实时流量波形（Canvas）
+        // T5.3b 实时流量波形（Canvas，P3-1 宽度自适应容器）
         Canvas(this.canvasCtx)
-          .width(340)
+          .width('100%')
           .height(90)
           .margin({ top: 8 })
+          .onAreaChange((_old: Area, newArea: Area) => {
+            this.canvasW = Number(newArea.width);
+            this.canvasH = Number(newArea.height);
+            this.drawTrafficGraph();
+          })
           .onReady(() => {
             if (this.canvasCtx) {
               this.drawTrafficGraph();

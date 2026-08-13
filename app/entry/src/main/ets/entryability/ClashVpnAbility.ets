@@ -5,9 +5,9 @@
  */
 import { VpnExtensionAbility, socket } from '@kit.NetworkKit';
 import { Want } from '@kit.AbilityKit';
-import { SocketStubService, UpdateConfigParams, ClashConfig, getHome, ClashRpcType } from 'proxy_core';
+import { SocketStubService, UpdateConfigParams, ClashConfig, ClashRpcType, ActivationStore, DnsEnhancedMode, TunStack, SelectedMapStore, ProxyMode } from 'proxy_core';
 import { updateConfig } from 'libflclash.so';
-import fs from '@ohos.file.fs';
+import { fileIo } from '@kit.CoreFileKit';
 import { preferences } from '@kit.ArkData';
 import { util } from '@kit.ArkTS';
 
@@ -16,63 +16,42 @@ export default class ClashVpnAbility extends VpnExtensionAbility {
 
   async onCreate(want: Want) {
     try {
-      console.log('M0b3', 'VpnExtensionAbility onCreate');
+      console.log('VpnAbility', 'VpnExtensionAbility onCreate');
       this.clashStubService = new SocketStubService(this.context);
       await this.clashStubService.startService();
       // 加载激活的订阅配置（关键修复：否则 Go 核心 currentConfig=nil → StartTUN 段错误）
       await this.loadActiveConfig();
-      await this.clashStubService.startVpn();
-      console.log('M0b3', 'VPN 核心启动成功');
+      // startVpn 返回 void（lint: await-thenable），不加 await
+      this.clashStubService.startVpn();
+      console.log('VpnAbility', 'VPN 核心启动成功');
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
-      console.error('M0b3', '启用VPN失败: ' + msg);
+      console.error('VpnAbility', '启用VPN失败: ' + msg);
     }
   }
 
   // 加载激活订阅配置到 Go 核心
   async loadActiveConfig(): Promise<void> {
     try {
-      console.log('M0b3', 'loadActiveConfig start');
-      // 方案1: 读共享状态文件（跨进程可靠）
-      let activeId: string = '';
-      try {
-        const statePath = this.context.filesDir + '/active_profile.id';
-        const exists = await fs.access(statePath);
-        if (exists) {
-          const file = await fs.open(statePath, fs.OpenMode.READ_ONLY);
-          const buf = new ArrayBuffer(64);
-          await fs.read(file.fd, buf);
-          fs.closeSync(file);
-          activeId = new util.TextDecoder().decodeWithStream(new Uint8Array(buf)).replace(/\0/g, '').trim();
-        }
-      } catch (e) {
-        console.error('M0b3', '读状态文件失败: ' + String(e));
-      }
+      console.log('VpnAbility', 'loadActiveConfig start');
+      // P1-2 ActivationStore 提供读路径：读跨进程文件 /active_profile.id
+      let activeId: string = await ActivationStore.readActiveProfileIdFromFile(this.context.filesDir);
       // 方案2: 读 Preferences（同进程兜底）
       if (activeId === '') {
         try {
           const prefs = await preferences.getPreferences(this.context, 'app_state');
           activeId = prefs.getSync('active_profile_id', '') as string;
         } catch (e) {
-          console.error('M0b3', '读Preferences失败: ' + String(e));
+          console.error('VpnAbility', '读Preferences失败: ' + String(e));
         }
       }
-      console.log('M0b3', 'loadActiveConfig activeId=[' + activeId + ']');
+      console.log('VpnAbility', 'loadActiveConfig activeId=[' + activeId + ']');
       if (activeId === '') {
-        console.warn('M0b3', '无激活订阅，跳过配置加载');
+        console.warn('VpnAbility', '无激活订阅，跳过配置加载');
         return;
       }
-      const home = await getHome(this.context);
-      // 确保 Go 侧配置格式存在：profiles/<id>.yaml（Go 核心读取路径）
-      const goCfgPath = home + '/profiles/' + activeId + '.yaml';
-      const arkCfgPath = home + '/profiles/' + activeId + '/config.yaml';
-      if (!(await ClashVpnAbility.fileExists(goCfgPath)) && (await ClashVpnAbility.fileExists(arkCfgPath))) {
-        const data = await ClashVpnAbility.readFile(arkCfgPath);
-        if (data) {
-          await ClashVpnAbility.writeFile(goCfgPath, data);
-          console.log('M0b3', '已从ArkTS格式复制Go配置: ' + activeId + '.yaml');
-        }
-      }
+      // P1-2 ActivationStore 提供 yaml 同步：确保 Go 侧 <id>.yaml 存在（内部会调 getHome 建目录）
+      await ActivationStore.ensureGoConfigYaml(this.context, activeId);
       // VPN 进程内直接 NAPI 加载（libflclash 的 updateConfig 走 Go 核心 applyConfig → currentConfig 就绪）
       // 关键修复：
       // 1. override-dns: true + dns.enable: true —— 订阅若关闭 DNS，核心 URLTest 无法解析域名 → 测速全超时
@@ -84,25 +63,63 @@ export default class ClashVpnAbility extends VpnExtensionAbility {
         cfg.dns['proxy-server-nameserver'] = ['223.5.5.5'];
         cfg.dns['default-nameserver'] = ['223.5.5.5'];
       }
+      // P1-4 读取 pendingL3Patch（UI 进程的 Settings L3 变更后写入，VPN 重启后读一次应用并清空）
+      try {
+        const prefs = await preferences.getPreferences(this.context, 'app_settings');
+        const pending: string = prefs.getSync('pending_l3_patch', '') as string;
+        if (pending !== '') {
+          // Settings 侧写入的就是字符串值（'fake-ip'/'redir-host'、'system'/'gvisor'/'mixed'）
+          const patch: Record<string, string> = JSON.parse(pending) as Record<string, string>;
+          // DNS 增强模式
+          if (patch['dnsEnhancedMode'] !== undefined) {
+            if (cfg.dns) {
+              cfg.dns['enhanced-mode'] = patch['dnsEnhancedMode'] as DnsEnhancedMode;
+            }
+          }
+          // TUN 栈
+          if (patch['tunStack'] !== undefined) {
+            if (!cfg.tun) {
+              cfg.tun = new ClashConfig().tun;
+            }
+            if (cfg.tun) {
+              cfg.tun.stack = patch['tunStack'] as TunStack;
+              cfg.tun.enable = true;
+            }
+          }
+          // 读完后清除（只应用一次）
+          await prefs.put('pending_l3_patch', '');
+          await prefs.flush();
+          console.log('VpnAbility', '已应用 pending L3 patch: ' + pending);
+        }
+      } catch (e) {
+        console.error('VpnAbility', '读 pendingL3Patch 失败: ' + String(e));
+      }
+      // P3 持久化恢复：上次选择的模式 + 各组的节点选择（跨进程共享文件）
+      const persistedMode = await SelectedMapStore.loadMode(this.context);
+      if (persistedMode !== '' && cfg.mode) {
+        cfg.mode = persistedMode as ProxyMode;
+        console.log('VpnAbility', '恢复持久化模式: ' + persistedMode);
+      }
+      const selectedMap = await SelectedMapStore.load(this.context, activeId);
       const params: UpdateConfigParams = {
         'profile-id': activeId,
         'config': cfg,
         'params': {
           'is-patch': false,
           'is-compatible': false,
-          'selected-map': {},
+          'selected-map': selectedMap,
           'override-dns': true,
           'test-url': 'https://www.gstatic.com/generate_204'
         }
       };
-      console.log('M0b3', 'loadActiveConfig calling updateConfig...');
+      console.log('VpnAbility', 'loadActiveConfig calling updateConfig...');
       const result: string = await updateConfig(JSON.stringify(params));
-      console.log('M0b3', 'loadActiveConfig result=[' + result + '] id=' + activeId);
+      console.log('VpnAbility', 'loadActiveConfig result=[' + result + '] id=' + activeId);
       // 设置 TUN 选项（关键：tunIp 必须设置，否则 ParseConfig 不添加 IPv4 路由 0.0.0.0/0 → 流量不走 TUN）
       await this.setTunOptions();
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
-      console.error('M0b3', 'loadActiveConfig failed: ' + msg);
+      console.error('VpnAbility', 'loadActiveConfig failed: ' + msg);
     }
   }
 
@@ -132,51 +149,25 @@ export default class ClashVpnAbility extends VpnExtensionAbility {
           reject(e);
         });
       });
-      console.log('M0b3', 'setTunOptions result=[' + result + ']');
+      console.log('VpnAbility', 'setTunOptions result=[' + result + ']');
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
-      console.error('M0b3', 'setTunOptions failed: ' + msg);
+      console.error('VpnAbility', 'setTunOptions failed: ' + msg);
     }
   }
 
   onDestroy() {
-    console.log('M0b3', 'VpnExtensionAbility onDestroy');
+    console.log('VpnAbility', 'VpnExtensionAbility onDestroy');
     this.clashStubService?.stopVpn();
     const lockPath = this.context.filesDir + '/vpn_ipc.lock';
     try {
-      fs.unlinkSync(lockPath);
+      fileIo.unlinkSync(lockPath);
     } catch (e) {
       // lock 文件不存在时忽略
     }
   }
 
-  // ---- 静态文件工具（跨进程共享 filesDir）----
-  static async fileExists(path: string): Promise<boolean> {
-    try {
-      return await fs.access(path);
-    } catch (e) {
-      return false;
-    }
-  }
-
-  static async readFile(filePath: string): Promise<Uint8Array | null> {
-    try {
-      const file = await fs.open(filePath);
-      const stats = await fs.stat(filePath);
-      const buf = new ArrayBuffer(stats.size);
-      await fs.read(file.fd, buf);
-      fs.closeSync(file);
-      return new Uint8Array(buf);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  static async writeFile(filePath: string, data: Uint8Array): Promise<void> {
-    const file = await fs.open(filePath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
-    await fs.write(file.fd, data.buffer);
-    fs.closeSync(file);
-  }
+  // ---- P2-2 静态文件工具已统一到 proxy_core/fileUtils，本地重复实现删除 ----
 }
 
 interface TunRawOptions {

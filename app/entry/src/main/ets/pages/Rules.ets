@@ -1,16 +1,15 @@
 /*
  * hmos-openvpn M2: 规则页（对齐 Clash Verge rules.tsx）
  * T10.1 规则列表（从激活的订阅配置解析 rules 段）
- * T10.2 规则统计（总数/按策略分组）
- * 注：mihomo 核心 NAPI 未暴露 /rules API，从配置解析展示（静态）
+ * T10.2 规则统计（静态）
+ * P2-3 实时统计：调 getRequestList RPC 拿 ConnectionInfo.rule 字段，
+ *      按命中次数 top-N 展示规则命中情况
  */
 import { ThemeColors } from '../model/Theme';
 import { AppService } from '../service/AppService';
-import fs from '@ohos.file.fs';
-import { util } from '@kit.ArkTS';
+import { getHome, SocketProxyService, ConnectionInfo, fileExists, readText } from 'proxy_core';
 import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
-import { getHome } from 'proxy_core';
 
 interface RuleItem {
   text: string;
@@ -18,15 +17,39 @@ interface RuleItem {
   policy: string;
 }
 
+// P2-3 规则命中统计（实时）
+interface RuleHitStat {
+  rule: string;
+  count: number;
+}
+
+@Builder function EmptyText(content: string) {}
+
 @Component
 export struct RulesPage {
   @Consume colors: ThemeColors;
   @State rules: Array<RuleItem> = [];
-  @State stats: string = '';
+  // $r() 返回 Resource，与纯字符串拼接结果并存 → 联合类型
+  @State stats: string | Resource = '';
+  // P2-3 实时命中统计
+  @State hitStats: Array<RuleHitStat> = [];
   private appService: AppService = AppService.getInstance();
+  private hitRefreshTimer: number = -1;
 
   aboutToAppear(): void {
     this.loadRules();
+    this.loadHitStats();
+    // 每 2 秒刷新一次实时命中统计（避免过于频繁的 RPC）
+    this.hitRefreshTimer = setInterval(() => {
+      this.loadHitStats();
+    }, 2000);
+  }
+
+  aboutToDisappear(): void {
+    if (this.hitRefreshTimer !== -1) {
+      clearInterval(this.hitRefreshTimer);
+      this.hitRefreshTimer = -1;
+    }
   }
 
   async loadRules(): Promise<void> {
@@ -34,17 +57,17 @@ export struct RulesPage {
       const context = getContext(this) as common.UIAbilityContext;
       const activeId = await this.appService.getActiveProfileId();
       if (activeId === '') {
-        this.stats = '未激活订阅';
+        this.stats = $r('app.string.rules_no_active');
         return;
       }
       const home = await getHome(context);
       // 读取 ArkTS 格式配置（<id>/config.yaml）
       const cfgPath = home + '/profiles/' + activeId + '/config.yaml';
-      if (!(await RulesPage.fileExists(cfgPath))) {
-        this.stats = '配置文件不存在';
+      if (!(await fileExists(cfgPath))) {
+        this.stats = $r('app.string.rules_config_missing');
         return;
       }
-      const data = await RulesPage.readText(cfgPath);
+      const data = await readText(cfgPath);
       const items: Array<RuleItem> = [];
       const lines = data.split('\n');
       let inRules = false;
@@ -84,29 +107,37 @@ export struct RulesPage {
       }
       this.stats = '共 ' + items.length + ' 条规则 | ' + parts.join(' ');
     } catch (e) {
-      this.stats = '解析失败: ' + String(e);
+      // P2-6 i18n：参数化消息通过 $r('app.string.xxx', arg) 传递
+      this.stats = $r('app.string.rules_parse_failed', String(e));
     }
   }
 
-  static async fileExists(path: string): Promise<boolean> {
-    try {
-      return await fs.access(path);
-    } catch (e) {
-      return false;
+  // P2-3 实时规则命中统计：调 getRequestList 拿所有 ConnectionInfo，按 rule 字段分组计数
+  async loadHitStats(): Promise<void> {
+    const svc: SocketProxyService | undefined = this.appService.getProxyService();
+    if (!svc) {
+      this.hitStats = [];
+      return;
     }
-  }
-
-  static async readText(filePath: string): Promise<string> {
     try {
-      const file = await fs.open(filePath);
-      const stats = await fs.stat(filePath);
-      const buf = new ArrayBuffer(stats.size);
-      await fs.read(file.fd, buf);
-      fs.closeSync(file);
-      const decoder = new util.TextDecoder();
-      return decoder.decodeWithStream(new Uint8Array(buf));
+      const list: Array<ConnectionInfo> = await svc.getRequestList();
+      const counter: Record<string, number> = {};
+      for (const c of list) {
+        const ruleName = (c.rule ?? '').trim();
+        if (ruleName === '') continue;
+        counter[ruleName] = (counter[ruleName] ?? 0) + 1;
+      }
+      // 排序后取 top-10
+      const arr: Array<RuleHitStat> = [];
+      const keys = Object.keys(counter);
+      for (const k of keys) {
+        arr.push({ rule: k, count: counter[k] });
+      }
+      arr.sort((a: RuleHitStat, b: RuleHitStat) => b.count - a.count);
+      this.hitStats = arr.slice(0, 10);
     } catch (e) {
-      return '';
+      // 静默失败：VPN 未启动时 RPC 会 reject，不打扰用户
+      this.hitStats = [];
     }
   }
 
@@ -115,7 +146,7 @@ export struct RulesPage {
       // 标题 + 统计
       Row() {
         Column({ space: 2 }) {
-          Text('规则')
+          Text($r('app.string.rules_title'))
             .fontSize(22)
             .fontWeight(FontWeight.Bold)
             .fontColor(this.colors.textPrimary)
@@ -125,7 +156,7 @@ export struct RulesPage {
         }
         .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
-        Button('刷新')
+        Button($r('app.string.rules_refresh'))
           .fontSize(12)
           .height(32)
           .backgroundColor(this.colors.primary)
@@ -133,6 +164,43 @@ export struct RulesPage {
       }
       .width('100%')
       .padding({ left: 24, top: 16, right: 24, bottom: 8 })
+
+      // P2-3 实时命中统计（top-10）
+      if (this.hitStats.length > 0) {
+        Column({ space: 4 }) {
+          Row() {
+            Text($r('app.string.rules_hit_stats_title'))
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.colors.textPrimary)
+              .layoutWeight(1)
+            Text($r('app.string.rules_hit_stats_refresh'))
+              .fontSize(10)
+              .fontColor(this.colors.textSecondary)
+          }
+          .width('100%')
+          ForEach(this.hitStats, (h: RuleHitStat) => {
+            Row() {
+              Text(h.rule)
+                .fontSize(12)
+                .fontColor(this.colors.textPrimary)
+                .layoutWeight(1)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Text('×' + h.count)
+                .fontSize(12)
+                .fontColor(this.colors.primary)
+                .margin({ left: 8 })
+            }
+            .width('100%')
+            .padding({ left: 16, right: 16, top: 4, bottom: 4 })
+            .borderRadius(6)
+            .backgroundColor(this.colors.card)
+          }, (h: RuleHitStat) => h.rule)
+        }
+        .width('92%')
+        .margin({ bottom: 8 })
+      }
 
       // 规则列表
       List({ space: 2 }) {

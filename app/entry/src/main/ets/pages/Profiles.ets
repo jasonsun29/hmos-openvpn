@@ -8,11 +8,15 @@
  */
 import { ThemeColors } from '../model/Theme';
 import { AppService } from '../service/AppService';
-import { Profile, ProfileType, ProfileRepo, SubscriptionInfo, getHome } from 'proxy_core';
-import { common } from '@kit.AbilityKit';
+import { Profile, ProfileType, ProfileRepo, SubscriptionInfo, getHome, fileExists, readText, patchGlobalGroupInYaml } from 'proxy_core';
+import { common, abilityAccessCtrl } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import { util } from '@kit.ArkTS';
-import fs from '@ohos.file.fs';
+// P2-13 文件 API 统一：saveEdit 写配置文件用 fileIo.sync，文本读取走 proxy_core/readText
+// P3-7/P3-11 picker：本地文件导入 + 导出
+import { fileIo, picker } from '@kit.CoreFileKit';
+// P3-12 扫码导入（系统 ScanKit 默认扫码页）
+import { scanCore, scanBarcode } from '@kit.ScanKit';
 
 @Component
 export struct ProfilesPage {
@@ -42,13 +46,19 @@ export struct ProfilesPage {
     this.activeId = await this.appService.getActiveProfileId();
   }
 
-  // T3.2 URL 导入
+  // T3.2 URL 导入（输入框入口）
   async importFromUrl(): Promise<void> {
     const url: string = this.urlInput.trim();
     if (url === '') {
       promptAction.showToast({ message: '请输入订阅 URL' });
       return;
     }
+    await this.doImportUrl(url);
+    this.urlInput = '';
+  }
+
+  // P3-12 公共导入入口：URL 导入与扫码导入共用（校验 + 拉取 + 入库）
+  async doImportUrl(url: string): Promise<void> {
     if (!url.startsWith('https://')) {
       promptAction.showToast({ message: '仅支持 HTTPS 订阅（安全要求）' });
       return;
@@ -66,12 +76,106 @@ export struct ProfilesPage {
       });
       await repo.addOrUpdate(profile);
       promptAction.showToast({ message: '订阅导入成功: ' + profile.name });
-      this.urlInput = '';
       await this.loadProfiles();
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
       console.error('T3', '导入失败 url=' + url + ' err=' + msg + ' stack=' + ((e instanceof Error) ? e.stack : ''));
       promptAction.showToast({ message: '导入失败: ' + msg });
+    }
+  }
+
+  // P3-12 扫码导入：ScanKit 默认扫码页（QR_CODE）→ 解析 URL → 复用 doImportUrl
+  async scanImport(): Promise<void> {
+    const context = getContext(this) as common.UIAbilityContext;
+    try {
+      // 系统扫码页需要相机预览 → 先申请 CAMERA（拒绝则提示并退出）
+      const atManager = abilityAccessCtrl.createAtManager();
+      const grant = await atManager.requestPermissionsFromUser(context, ['ohos.permission.CAMERA']);
+      if (grant.authResults.length === 0 || grant.authResults[0] !== 0) {
+        promptAction.showToast({ message: '需要相机权限才能扫码（可在设置中开启）' });
+        return;
+      }
+      const options: scanBarcode.ScanOptions = { scanTypes: [scanCore.ScanType.QR_CODE] };
+      const result = await scanBarcode.startScanForResult(context, options);
+      let url: string = (result.originalValue ?? '').trim();
+      if (url === '') {
+        promptAction.showToast({ message: '未识别到内容' });
+        return;
+      }
+      // 兼容 clash://install?url=... 等 schema，解析出真实订阅 URL
+      if (!url.startsWith('https://') && url.includes('url=')) {
+        const m = url.match(/url=([^&\s]+)/);
+        if (m && m[1] !== undefined) {
+          url = decodeURIComponent(m[1]);
+        }
+      }
+      await this.doImportUrl(url);
+    } catch (e) {
+      const msg: string = (e instanceof Error) ? e.message : String(e);
+      // 1000500002 = 用户取消扫码，静默
+      if (!msg.includes('1000500002')) {
+        console.error('T3', '扫码失败: ' + msg);
+        promptAction.showToast({ message: '扫码失败: ' + msg });
+      }
+    }
+  }
+
+  // P3-7 本地文件订阅导入：DocumentViewPicker 选择 .yaml/.yml → saveByUri 拷入沙箱
+  async importFromFile(): Promise<void> {
+    const context = getContext(this) as common.UIAbilityContext;
+    const docPicker = new picker.DocumentViewPicker(context);
+    try {
+      const uris = await docPicker.select({
+        maxSelectNumber: 1,
+        fileSuffixFilters: ['.yaml,.yml']
+      });
+      console.log('Profiles', 'importFromFile uris=' + JSON.stringify(uris));
+      if (uris.length === 0) {
+        return; // 用户取消
+      }
+      const profile = new Profile(ProfileType.File, '');
+      profile.loadContext(context);
+      await profile.saveByUri(uris[0]);
+      // 从文件名推断订阅名（去掉扩展名），列表展示更友好
+      const segs = uris[0].split('/');
+      const rawName = segs[segs.length - 1] ?? '';
+      profile.name = rawName.replace(/\.(yaml|yml)$/i, '');
+      const repo: ProfileRepo | undefined = this.appService.getProfileRepo();
+      if (repo) {
+        await repo.addOrUpdate(profile);
+        promptAction.showToast({ message: '文件导入成功' });
+        await this.loadProfiles();
+      }
+    } catch (e) {
+      promptAction.showToast({ message: '导入失败: ' + String(e) });
+    }
+  }
+
+  // P3-11 订阅导出：把 <id>/config.yaml 复制到用户选择的保存位置
+  async exportProfile(p: Profile): Promise<void> {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const home = await getHome(context);
+      const cfgPath = home + '/profiles/' + p.id + '/config.yaml';
+      if (!(await fileExists(cfgPath))) {
+        promptAction.showToast({ message: '配置不存在' });
+        return;
+      }
+      const docPicker = new picker.DocumentViewPicker(context);
+      const saveUris = await docPicker.save({
+        newFileNames: [(p.name ?? p.id) + '.yaml']
+      });
+      console.log('Profiles', 'exportProfile saveUris=' + JSON.stringify(saveUris));
+      if (saveUris.length === 0) {
+        console.log('Profiles', 'exportProfile 用户取消');
+        return; // 用户取消
+      }
+      await fileIo.copyFile(cfgPath, saveUris[0]);
+      console.log('Profiles', 'exportProfile 复制完成: ' + saveUris[0]);
+      promptAction.showToast({ message: '已导出' });
+    } catch (e) {
+      console.error('Profiles', 'exportProfile 失败: ' + String(e));
+      promptAction.showToast({ message: '导出失败: ' + String(e) });
     }
   }
 
@@ -116,6 +220,18 @@ export struct ProfilesPage {
           .fontSize(13)
           .backgroundColor(this.colors.primary)
           .onClick(() => this.importFromUrl())
+        // P3-7 本地文件导入
+        Button('文件')
+          .height(40)
+          .fontSize(13)
+          .backgroundColor('#5A6B8C')
+          .onClick(() => this.importFromFile())
+        // P3-12 扫码导入
+        Button('扫码')
+          .height(40)
+          .fontSize(13)
+          .backgroundColor('#5A6B8C')
+          .onClick(() => this.scanImport())
       }
       .width('92%')
       .margin({ bottom: 8 })
@@ -162,6 +278,13 @@ export struct ProfilesPage {
                 .backgroundColor(this.colors.primary)
                 .margin({ left: 4 })
                 .onClick(() => this.editProfile(p))
+              // P3-11 导出按钮
+              Button('导出')
+                .fontSize(12)
+                .height(30)
+                .backgroundColor('#5A6B8C')
+                .margin({ left: 4 })
+                .onClick(() => this.exportProfile(p))
             }
             .width('100%')
             .padding(16)
@@ -228,8 +351,8 @@ export struct ProfilesPage {
       const home = await getHome(context);
       const cfgPath = home + '/profiles/' + p.id + '/config.yaml';
       let content: string = '';
-      if (await ProfilesPage.fileExists(cfgPath)) {
-        content = await ProfilesPage.readText(cfgPath);
+      if (await fileExists(cfgPath)) {
+        content = await readText(cfgPath);
       }
       this.editContent = content;
       this.editingId = p.id;
@@ -248,14 +371,17 @@ export struct ProfilesPage {
       if (id === '') return;
       const cfgPath = home + '/profiles/' + id + '/config.yaml';
       const encoder = new util.TextEncoder();
-      const file = await fs.open(cfgPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
-      await fs.write(file.fd, encoder.encodeInto(this.editContent).buffer);
-      fs.closeSync(file);
-      // 同步 Go 格式
+      // P2-13 sync API：fileIo.openSync / writeSync / closeSync（替代 fs.open/fs.write/fs.closeSync）
+      const file = fileIo.openSync(cfgPath, fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
+      const enc1 = encoder.encodeInto(this.editContent);
+      fileIo.writeSync(file.fd, enc1.buffer, { offset: 0, length: enc1.byteLength });
+      fileIo.closeSync(file);
+      // 同步 Go 格式（P3 全局模式修复：GLOBAL 组补丁一并应用）
       const goPath = home + '/profiles/' + id + '.yaml';
-      const goFile = await fs.open(goPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
-      await fs.write(goFile.fd, encoder.encodeInto(this.editContent).buffer);
-      fs.closeSync(goFile);
+      const goFile = fileIo.openSync(goPath, fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
+      const enc2 = encoder.encodeInto(patchGlobalGroupInYaml(this.editContent));
+      fileIo.writeSync(goFile.fd, enc2.buffer, { offset: 0, length: enc2.byteLength });
+      fileIo.closeSync(goFile);
       this.showEditor = false;
       promptAction.showToast({ message: '配置已保存' });
     } catch (e) {
@@ -263,46 +389,18 @@ export struct ProfilesPage {
     }
   }
 
-  static async fileExists(path: string): Promise<boolean> {
-    try {
-      return await fs.access(path);
-    } catch (e) {
-      return false;
-    }
-  }
-
-  static async readText(filePath: string): Promise<string> {
-    try {
-      const file = await fs.open(filePath);
-      const stats = await fs.stat(filePath);
-      const buf = new ArrayBuffer(stats.size);
-      await fs.read(file.fd, buf);
-      fs.closeSync(file);
-      const decoder = new util.TextDecoder();
-      return decoder.decodeWithStream(new Uint8Array(buf));
-    } catch (e) {
-      return '';
-    }
-  }
-
   formatUsage(si: SubscriptionInfo): string {
     const used = si.upload + si.download;
     const parts: string[] = [];
-    parts.push('已用 ' + this.formatBytes(used));
+    // P3-3 公共化：统一走 AppService.formatBytes
+    parts.push('已用 ' + AppService.formatBytes(used));
     if (si.total > 0) {
-      parts.push('共 ' + this.formatBytes(si.total));
+      parts.push('共 ' + AppService.formatBytes(si.total));
     }
     if (si.expire > 0) {
       const d = new Date(si.expire * 1000);
       parts.push('到期 ' + d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate());
     }
     return parts.join(' / ');
-  }
-
-  formatBytes(bytes: number): string {
-    if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
-    if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
-    if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return bytes + ' B';
   }
 }

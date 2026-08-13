@@ -1,32 +1,148 @@
 {
   "string": [
-    { "name": "module_desc", "value": "OpenVPN client for HarmonyOS" },
-    { "name": "EntryAbility_desc", "value": "Proxy client" },
-    { "name": "EntryAbility_label", "value": "OpenVPN" },
-    { "name": "nav_home", "value": "Home" },
-    { "name": "nav_proxies", "value": "Proxies" },
-    { "name": "nav_profiles", "value": "Profiles" },
-    { "name": "nav_settings", "value": "Settings" },
-    { "name": "nav_connections", "value": "Connections" },
-    { "name": "nav_rules", "value": "Rules" },
-    { "name": "nav_logs", "value": "Logs" },
-    { "name": "vpn_status", "value": "VPN Status" },
-    { "name": "vpn_connected", "value": "Connected" },
-    { "name": "vpn_disconnected", "value": "Disconnected" },
-    { "name": "vpn_requesting", "value": "Requesting authorization..." },
-    { "name": "proxy_mode", "value": "Proxy Mode" },
-    { "name": "mode_rule", "value": "Rule" },
-    { "name": "mode_global", "value": "Global" },
-    { "name": "mode_direct", "value": "Direct" },
-    { "name": "traffic", "value": "Traffic" },
-    { "name": "current_proxy", "value": "Current Proxy" },
-    { "name": "theme", "value": "Theme" },
-    { "name": "theme_light", "value": "Light" },
-    { "name": "theme_dark", "value": "Dark" },
-    { "name": "theme_system", "value": "System" },
-    { "name": "language", "value": "Language" },
-    { "name": "language_zh", "value": "中文" },
-    { "name": "language_en", "value": "English" },
-    { "name": "port", "value": "Port (mixed-port)" }
+    {
+      "name": "module_desc",
+      "value": "HarmonyVPN client for HarmonyOS"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Proxy client"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "HarmonyVPN"
+    },
+    {
+      "name": "nav_home",
+      "value": "Home"
+    },
+    {
+      "name": "nav_proxies",
+      "value": "Proxies"
+    },
+    {
+      "name": "nav_profiles",
+      "value": "Profiles"
+    },
+    {
+      "name": "nav_settings",
+      "value": "Settings"
+    },
+    {
+      "name": "nav_connections",
+      "value": "Connections"
+    },
+    {
+      "name": "nav_rules",
+      "value": "Rules"
+    },
+    {
+      "name": "nav_logs",
+      "value": "Logs"
+    },
+    {
+      "name": "vpn_status",
+      "value": "VPN Status"
+    },
+    {
+      "name": "vpn_connected",
+      "value": "Connected"
+    },
+    {
+      "name": "vpn_disconnected",
+      "value": "Disconnected"
+    },
+    {
+      "name": "vpn_requesting",
+      "value": "Requesting authorization..."
+    },
+    {
+      "name": "proxy_mode",
+      "value": "Proxy Mode"
+    },
+    {
+      "name": "mode_rule",
+      "value": "Rule"
+    },
+    {
+      "name": "mode_global",
+      "value": "Global"
+    },
+    {
+      "name": "mode_direct",
+      "value": "Direct"
+    },
+    {
+      "name": "traffic",
+      "value": "Traffic"
+    },
+    {
+      "name": "current_proxy",
+      "value": "Current Proxy"
+    },
+    {
+      "name": "theme",
+      "value": "Theme"
+    },
+    {
+      "name": "theme_light",
+      "value": "Light"
+    },
+    {
+      "name": "theme_dark",
+      "value": "Dark"
+    },
+    {
+      "name": "theme_system",
+      "value": "System"
+    },
+    {
+      "name": "language",
+      "value": "Language"
+    },
+    {
+      "name": "language_zh",
+      "value": "中文"
+    },
+    {
+      "name": "language_en",
+      "value": "English"
+    },
+    {
+      "name": "port",
+      "value": "Port (mixed-port)"
+    },
+    {
+      "name": "rules_title",
+      "value": "Rules"
+    },
+    {
+      "name": "rules_refresh",
+      "value": "Refresh"
+    },
+    {
+      "name": "rules_no_active",
+      "value": "No active profile"
+    },
+    {
+      "name": "rules_config_missing",
+      "value": "Config file not found"
+    },
+    {
+      "name": "rules_parse_failed",
+      "value": "Parse failed: %s"
+    },
+    {
+      "name": "rules_hit_stats_title",
+      "value": "Live hits (recent)"
+    },
+    {
+      "name": "rules_hit_stats_refresh",
+      "value": "Auto-refresh 2s"
+    },
+    {
+      "name": "camera_reason",
+      "value": "Camera is required for scanning QR subscription codes"
+    }
   ]
 }

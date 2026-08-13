@@ -18,11 +18,14 @@ export enum TunnelState {
 }
 
 
+// P3 真机验证修复：GitHub release 下载经订阅节点中继不稳定
+// （release-assets 重定向超时 / REALITY 握手失败），改用 jsdelivr 国内可达镜像，
+// 直连 CDN 不经代理，GeoX 更新可靠。
 const defaultGeoXMap = {
-  "mmdb":  "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
-  "asn": "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb",
-  "geoip": "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.dat",
-  "geosite": "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat"
+  "mmdb":  "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb",
+  "asn": "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb",
+  "geoip": "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat",
+  "geosite": "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
 } as GeoXUrl
 
 const defaultMixedPort = 7890;

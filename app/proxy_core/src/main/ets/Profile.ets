@@ -1,7 +1,7 @@
-import fs from '@ohos.file.fs';
+// P2-13 文件 API 统一：迁移到 @kit.CoreFileKit.fileIo
+import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { getProfilePath, getProfilesPath } from './appPath';
 import { Context } from '@kit.AbilityKit';
-import { fileUri } from '@kit.CoreFileKit';
 import { ProxyGroup, ProxyType, SubscriptionInfo } from './models/Common';
 import { JSON, taskpool, util } from '@kit.ArkTS';
 import { http } from '@kit.NetworkKit';
@@ -76,15 +76,16 @@ export class Profile {
   }
   async check(): Promise<boolean>{
     let profilePath = await getProfilePath(this.context, this.id);
-    return await fs.access(profilePath, fs.AccessModeType.EXIST)
+    // P2-13 sync access 替代 async fs.access（API 一致，行为相同）
+    return fileIo.accessSync(profilePath);
   }
   async delete(): Promise<void>{
     if(!await this.check())
       return
     let profileDir = await getProfilesPath(this.context)
     let profilePath = await getProfilePath(this.context, this.id);
-    fs.unlink(profilePath)
-    fs.unlink(profileDir)
+    fileIo.unlink(profilePath);
+    fileIo.unlink(profileDir);
   }
   async update(vailConfig: (config: string) => Promise<string>): Promise<boolean> {
     let httpRequest = http.createHttp();
@@ -141,25 +142,25 @@ export class Profile {
     }
     const filePath = await getProfilePath(this.context, this.id)
     const tempPath = this.context!.tempDir + "/temp.config";
-    const temp = await fs.open(tempPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC)
-    await fs.write(temp.fd, bytes.buffer)
-    await fs.close(temp.fd)
+    const temp = fileIo.openSync(tempPath, fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
+    fileIo.writeSync(temp.fd, bytes.buffer, { offset: 0, length: bytes.byteLength });
+    fileIo.closeSync(temp.fd);
     let message = await vailConfig(tempPath);
-    await fs.unlink(tempPath);
+    fileIo.unlink(tempPath);
     if (message != "") {
       throw new Error(message);
     }
-    const file = await fs.open(filePath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC)
-    await fs.write(file.fd, bytes.buffer)
-    await fs.fsync(file.fd)
-    await fs.close(file.fd)
+    const file = fileIo.openSync(filePath, fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
+    fileIo.writeSync(file.fd, bytes.buffer, { offset: 0, length: bytes.byteLength });
+    fileIo.fsyncSync(file.fd);
+    fileIo.closeSync(file.fd);
     this.lastUpdateDate = new Date().getTime()
     return this
   }
   async saveByUri(uri: string): Promise<Profile>{
     const filePath = await getProfilePath(this.context, this.id)
     try {
-      await fs.copy(uri, fileUri.getUriFromPath(filePath))
+      fileIo.copy(uri, fileUri.getUriFromPath(filePath));
     } catch (error) {
       throw error as Error
     }

@@ -66,3 +66,34 @@
 - **M2 完成（2026-08-12）**：Connections连接页(实时列表/断开/清空)、Rules规则页(配置解析)、Logs日志页(实时流/级别过滤)、配置编辑(TextArea对话框)、流量波形图(Canvas蓝下载/绿上传)、节点切换修复(Button承载+清空重建绕过ForEach key不渲染)、测速并发6批+HTTPS测试地址+testing卡死自愈(按钮不enabled禁用防卡死)。
 - **ArkUI 真机经验（2026-08-12）**：①Row+onClick在真机事件不可靠，交互元素用Button承载 ②ForEach key变更不触发重渲染，改清空重建(this.groups=[]再加载) ③Button.enabled(false)禁用后onClick不触发，避免用enabled控制防重复(用逻辑自愈代替) ④Scroll包裹内容防卡片溢出。
 - **三Agent审查**：M2 一致性审查在跑（proc_aedb25e97671）。
+- **P3 第一批完成（2026-08-14，devecocli/hvigorw 全程验证）**：
+  - 前置修复（checklist 第 1 步发现的存量问题，均为 P2 未提交改动引入）：
+    ①`AppScope/app.json5` 顶层 `privacy` 块当前 SDK（API 24）schema 不支持（顶层只允许 `app`）→ 迁到 docs/privacy-statement.md，构建恢复
+    ②P1-8 签名占位符方案不可行：hvigor/CLI 不解析 local.properties 的 `${signing.dir}/${signing.cert.name}`（实测 Invalid storeFile）→ build-profile.json5 恢复硬编码绝对路径
+    ③26 个 ArkTS 编译错误清零：fileUtils 拆分后 getHome 迁移到 appPath（ActivationStore/ClashVpnAbility/DiagnosticCollector/GeoDataInstaller 的 import 修正）、CoreLogger（openSync 返回 File 取 .fd + levelToString 静态化 + 删命名空间当值用）、Rules（stats 改 string|Resource）、SettingsRepository（去 as any）、SocketStubService（解构改 Map.values()）、ClashVpnAbility（patch 强类型 + as DnsEnhancedMode/TunStack）
+  - 第一批 5 项全部完成：t32 formatBytes 公共化（删 Home/Connections/Profiles 3 处重复，统一 AppService.formatBytes）→ t30 Canvas onAreaChange 自适应 → t31 波形批量裁剪（MAX_HISTORY_POINTS=60，2 倍阈值 splice）→ t34 AsyncUtils.tryRunAsync（新建 utils/AsyncUtils.ets，Home 三处高频 catch 已迁移）→ t35 Connections 搜索/过滤（searchText + filtered() + 空态区分）
+  - 验证：devecocli build（debug）通过，entry-default-signed.hap 产出；proxy_core 本地单测 1/1 通过；CodeLinter 0 error（Home 循环读状态变量警告已顺手修复，ClashVpnAbility await-thenable / Proxies L101 为存量 warning）
+  - 待办：①21 个真机单测（ohosTest）需连 Pura X Max 后 `hvigorw test` 跑 proxy_core 模块 ②devecocli check compat 需 DevEco Studio ≥26.0.0.810（本机 6.1.1.300 不支持；已评估：26.0.0 目前是 Beta，升级会动 API 24 SDK/go-ohos/签名链路，用户拍板暂不升级）③P3 第三~四批未开始
+- **P3 第二批完成（2026-08-14）**：t36 本地文件导入（DocumentViewPicker.select + Profile.saveByUri，文件名校验去扩展名做订阅名）→ t40 订阅导出（picker.save newFileNames + fileIo.copyFile）→ t37 Settings GeoX 数据卡片（mtime 显示上次更新 + 一键更新）。**关键修复：updateGeoData 参数顺序**——Go IPC（ipc.go UpdateGeoData case）约定 Params[0]=geoType(MMDB/ASN/GeoIp/GeoSite)、Params[1]=geoName(文件名，Path.Resolve 拼核心工作目录)，原 ArkTS 签名 (geoName, geoType) 名字反且发送反序，会导致 Go switch 无匹配、RPC 挂到超时；已修正 SocketProxyService.updateGeoData(geoType, geoName) 并同步 Settings 调用。构建通过、CodeLinter 0 error（顺手清掉 Home.refreshIpInfo 循环内写状态的 warning 与 ClashVpnAbility await-thenable；Proxies.ets L101 循环内渐进刷新为有意保留）
+- **P3 真机验证（2026-08-14，Pura X Max 全程 HDC+devecocli ui 驱动）**：
+  - 单测：21 个 ohosTest 用例聚合进本地测试入口（src/test/List.test.ets import 4 个套件）宿主机跑通 **23/23**。修复真 bug：TrafficValue 单位换算边界 `>` → `>=`（1024 落 B、1024² 落 KB）、Settings mtime 秒/毫秒混淆（显示"20658 天前"）。ohosTest 设备测试管线在 DevEco 6.1.1 对 HAR 模块有缺陷（模板生成路径/`unit.test.replace.page` 注入/sourceMaps.map ENOENT 三关），已用 scripts/fix-ohosTest-harness.sh + src/ohosTest/resources/base/profile/main_pages.json + src/main/resources/base/profile/main_pages.json 修复前两关，第三关为 hvigor 缺陷放弃，本地聚合替代
+  - 测速：Proxies 并发 6→16（真机大订阅 ~1000 节点全量 11min→3.5min）；"测速中..."自愈、节点切换、延迟回显均正常
+  - GeoX：卡片+时间显示正常；更新 RPC 全链路通（参数顺序修复生效，Go updater 执行下载）；**下载受订阅质量阻塞**——桔子云订阅节点实际流量不可用（健康检查 47/106ms 的节点真实拨号 relay i/o timeout / REALITY 握手失败），且 GitHub/jsdelivr/fastly 均命中 MATCH 兜底规则走代理；CN 主机直连正常（myip.ipip.net 出口 27.38.4.121 验证）。已将 geox-url 默认值从 GitHub 改为 cdn.jsdelivr.net 镜像（直连友好）+ updateGeoData socket 超时 120s；订阅恢复健康节点后即可成功
+  - 导入/导出：picker 打开/导航/文件名（"桔子云.yaml"）正常；导出全流程成功（文件已落 Download，同名冲突对话框验证）；导入 picker 看不到刚导出的文件=Media Library 索引延迟（保存 picker 无过滤同样看不到，非 fileSuffixFilters 问题）
+  - 心跳：VPN 进程被系统杀后 UI 正确提示"VPN服务被系统干掉了"（P0-4 生效）
+  - 工具资产：hdc uitest uiInput keyEvent 2=返回；devecocli ui layout/click/swipe/fling/text 可用；hilog 缓冲会被大流量日志快速轮转；**hdc file recv 可读应用沙箱**（拉取 yaml 验证用）
+- **P3 全局模式/节点持久化（2026-08-14，实验性，用户判断 yaml 补丁方法存疑，明日重新评估）**：
+  - 已完成并真机验证：模式切换真实生效（核心日志 using GLOBAL 证据）；SelectedMapStore 跨进程持久化（mode + 各组节点选择，VPN 重启恢复）；Proxies 模式感知查询；Home setMode GLOBAL 继承当前节点；大小写归一（按钮小写 vs 枚举大写，曾导致继承分支与 ParseProxyGroup 失效）
+  - **存疑部分（明日重做方向）**：YamlGlobalPatch——无 Go 重编译约束下，在 Go 格式 yaml 同步时给 GLOBAL 组补全成员（DIRECT/REJECT+组名+节点名）。已发现并修复两个大坑：①TextEncoder 池化 ArrayBuffer 尾部陈旧字节被写盘（53 行平移副本+坏规则 MATCH,桔子云.in-addr.arpa，核心报 rules[5383] error——已修 fileUtils.writeFile 及全部写盘点，按视图 byteLength 截断+TRUNC）②插入块缩进风格与原文件混排导致 yaml 非法（mihomo 宽容解析吞掉成员）——已重写为缩进自适应+独立 dash 风格，**最新版尚未真机验证**
+  - 设备当前状态：device yaml 为缩进混排版本（mihomo 宽容解析通过、核心可跑）；明日应从干净 config.yaml 重新同步验证
+  - 明日待办：①评估 yaml 补丁方案或换路线（重编译 Go / 接受机场现状等）②干净 config.yaml 重同步 + 验证 GLOBAL 成员 ③继续第四批（t33/t43/t44）
+
+- **P3 第三批完成（2026-08-14，构建+lint+真机验证）**：
+  - t38 updateDns：**弃用**。查清契约（Go 读 args[0] 为逗号分隔字符串、OHOS 侧只改核心自身 systemResolver 不触碰系统 DNS、TUN 重建窗口有全断网风险、fake-ip 已工作正常），在 libflclash/Index.d.ts 补声明+完整决策记录（接入点留档）
+  - t39 UI 进程轻量保活：状态恢复方案——EntryAbility.onBackground/onForeground/onNewWant 调 pingCoreNow()，MainPage.aboutToAppear 在 vpnOn=true 时立即验活（心跳结果驱动 vpnAlive/vpnOn 复位，不复用长时任务）
+  - t41 扫码导入：ScanKit（@kit.ScanKit scanBarcode.startScanForResult + ScanType.QR_CODE），doImportUrl 公共化（URL/扫码共用），clash://install?url= schema 解析，CAMERA 权限（module.json5 + camera_reason 三语 + requestPermissionsFromUser）。真机验证：扫码按钮 → 权限申请 → 系统扫码页正常拉起（含图库备选入口）；真实扫码需物理指向二维码
+  - t42 EntryBackupAbility：onBackup/onRestore 显式拷贝 RDB(fsclash.db+wal/shm)/active_profile.id/profiles 目录（copyFileSync+copyDir），backup_config.json includes/excludes 白名单。系统备份触发需端云备份场景，编译+注册验证通过
+  - 构建通过、CodeLinter 0 error
+
+
+  - 工具资产：devecocli skills add 装了 3 个官方 skill 到 app/.claude/skills/（hmos-arkts-syntax-checker / hmos-arkts-knowledge-retriever / hmos-arkui-knowledge-retriever，含本地 linter-cli 与 docs 检索脚本），`devecocli docs search` 可查官方文档

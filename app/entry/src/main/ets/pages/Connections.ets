@@ -15,6 +15,8 @@ export struct ConnectionsPage {
   @State connections: Array<ConnectionInfo> = [];
   @State totalUp: number = 0;
   @State totalDown: number = 0;
+  // P3-6 搜索/过滤
+  @State searchText: string = '';
   private appService: AppService = AppService.getInstance();
   private refreshTimer: number = -1;
 
@@ -72,18 +74,22 @@ export struct ConnectionsPage {
     }
   }
 
-  formatBytes(bytes: number): string {
-    if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
-    if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
-    if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return bytes + ' B';
-  }
-
   formatDuration(start: number): string {
     const sec = Math.floor((Date.now() - start) / 1000);
     if (sec < 60) return sec + 's';
     if (sec < 3600) return Math.floor(sec / 60) + 'm' + (sec % 60) + 's';
     return Math.floor(sec / 3600) + 'h' + Math.floor((sec % 3600) / 60) + 'm';
+  }
+
+  // P3-6 按 host / 规则过滤
+  private filtered(): Array<ConnectionInfo> {
+    if (this.searchText === '') {
+      return this.connections;
+    }
+    const kw = this.searchText.toLowerCase();
+    return this.connections.filter((c: ConnectionInfo) =>
+      this.hostOf(c).toLowerCase().includes(kw) ||
+      (c.rule ?? '').toLowerCase().includes(kw));
   }
 
   build() {
@@ -95,7 +101,7 @@ export struct ConnectionsPage {
           .fontWeight(FontWeight.Bold)
           .fontColor(this.colors.textPrimary)
           .layoutWeight(1)
-        Text('↑ ' + this.formatBytes(this.totalUp) + '  ↓ ' + this.formatBytes(this.totalDown))
+        Text('↑ ' + AppService.formatBytes(this.totalUp) + '  ↓ ' + AppService.formatBytes(this.totalDown))
           .fontSize(13)
           .fontColor(this.colors.textSecondary)
         Button('全部断开')
@@ -108,9 +114,20 @@ export struct ConnectionsPage {
       .width('100%')
       .padding({ left: 24, top: 16, right: 24, bottom: 8 })
 
+      // P3-6 搜索框（按 host / 规则过滤）
+      Row() {
+        TextInput({ placeholder: '搜索 host / 规则', text: this.searchText })
+          .width('92%')
+          .height(36)
+          .onChange((v: string) => { this.searchText = v; })
+      }
+      .width('100%')
+      .justifyContent(FlexAlign.Center)
+      .margin({ bottom: 8 })
+
       // 连接列表
       List({ space: 6 }) {
-        ForEach(this.connections, (c: ConnectionInfo) => {
+        ForEach(this.filtered(), (c: ConnectionInfo) => {
           ListItem() {
             Row() {
               Column({ space: 2 }) {
@@ -127,7 +144,7 @@ export struct ConnectionsPage {
                   Text(this.formatDuration(c.start))
                     .fontSize(11)
                     .fontColor(this.colors.textSecondary)
-                  Text('↑ ' + this.formatBytes(c.upload) + ' ↓ ' + this.formatBytes(c.download))
+                  Text('↑ ' + AppService.formatBytes(c.upload) + ' ↓ ' + AppService.formatBytes(c.download))
                     .fontSize(11)
                     .fontColor(this.colors.textSecondary)
                 }
@@ -152,7 +169,7 @@ export struct ConnectionsPage {
       .width('100%')
       .padding({ left: 16, right: 16 })
 
-      // 空状态
+      // 空状态（区分"无连接"与"无匹配结果"）
       if (this.connections.length === 0) {
         Column() {
           Text('暂无连接')
@@ -160,6 +177,18 @@ export struct ConnectionsPage {
             .fontColor(this.colors.textSecondary)
             .margin({ top: 40 })
           Text('开启 VPN 后这里会显示实时连接')
+            .fontSize(12)
+            .fontColor(this.colors.textSecondary)
+            .margin({ top: 8 })
+        }
+        .width('100%')
+      } else if (this.filtered().length === 0) {
+        Column() {
+          Text('无匹配结果')
+            .fontSize(14)
+            .fontColor(this.colors.textSecondary)
+            .margin({ top: 40 })
+          Text('换个关键词试试')
             .fontSize(12)
             .fontColor(this.colors.textSecondary)
             .margin({ top: 8 })

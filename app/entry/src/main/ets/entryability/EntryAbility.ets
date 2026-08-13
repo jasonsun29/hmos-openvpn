@@ -16,6 +16,9 @@
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
+// P3-10 UI 进程轻量保活：不单独起长时任务（NEXT 管控极严且 VPN 隧道在 :vpn 进程），
+// 退后台/回前台只做核心验活，状态由心跳结果推导
+import { AppService } from '../service/AppService';
 
 const DOMAIN = 0x0000;
 
@@ -54,10 +57,21 @@ export default class EntryAbility extends UIAbility {
   onForeground(): void {
     // Ability has brought to foreground
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onForeground');
+    // P3-10 回前台立即验活：退后台期间 setInterval 可能被系统挂起，
+    // 回前台手动补一次心跳，vpnAlive/vpnOn 由心跳结果推导（Home 侧 @Watch 已有联动）
+    AppService.getInstance().pingCoreNow();
   }
 
   onBackground(): void {
     // Ability has back to background
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onBackground');
+    // P3-10 退后台不申请长时任务，仅轻量验活一次（VPN 隧道在 :vpn 进程，UI 被回收不影响隧道）
+    AppService.getInstance().pingCoreNow();
+  }
+
+  onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onNewWant');
+    // P3-10 二次拉起（如从通知/桌面图标）同样补一次验活
+    AppService.getInstance().pingCoreNow();
   }
 }

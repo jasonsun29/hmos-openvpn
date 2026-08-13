@@ -7,14 +7,21 @@
  *   - 数据查询（proxyGroups/traffic/providers）
  *   - 配置下发（loadConfig/validateConfig）
  *   - 状态归属（Preferences: 主题/语言/端口/激活订阅）
+ * 修复：
+ *   P0-4 VPN 断连心跳检测（5s 一次 ping，3 次连续失败 AppStorage 通知 UI）
  */
-import { common } from '@kit.AbilityKit';
+import { common, Want } from '@kit.AbilityKit';
+import { vpnExtension } from '@kit.NetworkKit';
 import { preferences } from '@kit.ArkData';
 import { util } from '@kit.ArkTS';
-import fs from '@ohos.file.fs';
-import { SocketProxyService, getHome, ProfileRepo, UpdateConfigParams, ClashConfig } from 'proxy_core';
+// P2-13 文件 API 统一：所有文件操作走 fileIo（@kit.CoreFileKit），删除 fs import
+import { SocketProxyService, getHome, ProfileRepo, UpdateConfigParams, ClashConfig, ActivationStore, SelectedMapStore } from 'proxy_core';
 import { CoreState, CoreStateType, ClashErrorCode } from '../model/CoreState';
 import { ThemeMode } from '../model/Theme';
+import { SettingsRepository } from '../repository/SettingsRepository';
+import { GeoDataInstaller } from '../installer/GeoDataInstaller';
+import { DiagnosticCollector } from '../collector/DiagnosticCollector';
+import { SubscriptionUpdater } from './SubscriptionUpdater';
 
 export class AppService {
   private static instance: AppService | undefined;
@@ -24,6 +31,11 @@ export class AppService {
   private proxyService: SocketProxyService | undefined;
   private profileRepo: ProfileRepo | undefined;
   coreState: CoreState = new CoreState();
+  // P0-4 心跳检测
+  private heartbeatTimer: number = -1;
+  private heartbeatFailCount: number = 0;
+  private static readonly HEARTBEAT_INTERVAL_MS = 5000;
+  private static readonly HEARTBEAT_FAIL_THRESHOLD = 3;
 
   static getInstance(): AppService {
     if (!AppService.instance) {
@@ -35,17 +47,23 @@ export class AppService {
   async init(context: common.UIAbilityContext, uiContext: UIContext): Promise<void> {
     this.context = context;
     this.uiContext = uiContext;
-    // Preferences 初始化
+    // P2-1 SettingsRepository 单例初始化（取代原来 AppService 内嵌的 Prefs 逻辑）
+    await SettingsRepository.getInstance().init(context);
     this.pref = await preferences.getPreferences(context, 'app_settings');
+    // P1-2 ActivationStore 单例初始化（Prefs + 跨进程文件 + Go yaml 同步 集中）
+    await ActivationStore.getInstance().init(context);
     // 核心工作目录
     const home = await getHome(context);
-    console.log('T2', 'home=' + home);
+    console.log('AppService', 'home=' + home);
     // ProfileRepo 初始化（订阅元数据 → RDB，T2.4）
     this.profileRepo = new ProfileRepo();
     await this.profileRepo.init(context);
-    // T7.1 GeoX 数据内置（resfile → 核心工作目录）
-    // 之前崩溃根因已定位为 currentConfig=nil（已修复），geo 数据是规则匹配必需，恢复启用
-    await this.initGeoIp(context);
+    // P2-1 GeoX 数据内置委派给 GeoDataInstaller
+    await GeoDataInstaller.install(context);
+    // P2-5 订阅自动更新 worker 安装（profileRepo 必须先初始化）
+    if (this.profileRepo) {
+      SubscriptionUpdater.getInstance().install(context, this.profileRepo);
+    }
     // SocketProxyService 初始化（需要 context + promptAction）
     this.proxyService = new SocketProxyService();
     if (this.uiContext) {
@@ -55,6 +73,69 @@ export class AppService {
 
   getProxyService(): SocketProxyService | undefined {
     return this.proxyService;
+  }
+
+  // P0-4 启动心跳检测（VPN 开后调用）
+  startHeartbeat(): void {
+    if (this.heartbeatTimer !== -1) {
+      return; // 已在运行
+    }
+    this.heartbeatFailCount = 0;
+    // 初始为 alive
+    AppStorage.setOrCreate('vpnAlive', true);
+    this.heartbeatTimer = setInterval(() => {
+      this.pingCore();
+    }, AppService.HEARTBEAT_INTERVAL_MS);
+    console.log('Heartbeat', 'startHeartbeat, interval=' + AppService.HEARTBEAT_INTERVAL_MS + 'ms');
+  }
+
+  // P0-4 停止心跳（VPN 关后调用）
+  stopHeartbeat(): void {
+    if (this.heartbeatTimer !== -1) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = -1;
+    }
+    this.heartbeatFailCount = 0;
+    AppStorage.setOrCreate('vpnAlive', false);
+  }
+
+  // P0-4 心跳探测：调轻量 RPC，连续 3 次失败 → 标记 alive=false
+  private async pingCore(): Promise<void> {
+    const svc: SocketProxyService | undefined = this.proxyService;
+    if (!svc) {
+      this.markAlive(false);
+      return;
+    }
+    try {
+      // 调 vpnConfigIsLoad，最轻量的 RPC（不拉代理组 / 不拉流量）
+      const ready: boolean = await svc.vpnConfigIsLoad();
+      if (ready) {
+        this.markAlive(true);
+      } else {
+        this.markAlive(false);
+      }
+    } catch (e) {
+      this.markAlive(false);
+      const msg: string = (e instanceof Error) ? e.message : String(e);
+      console.warn('Heartbeat', 'ping failed: ' + msg);
+    }
+  }
+
+  private markAlive(alive: boolean): void {
+    if (alive) {
+      this.heartbeatFailCount = 0;
+      if (AppStorage.get<boolean>('vpnAlive') !== true) {
+        AppStorage.setOrCreate('vpnAlive', true);
+        console.log('Heartbeat', 'vpnAlive → true');
+      }
+    } else {
+      this.heartbeatFailCount++;
+      if (this.heartbeatFailCount >= AppService.HEARTBEAT_FAIL_THRESHOLD
+          && AppStorage.get<boolean>('vpnAlive') !== false) {
+        AppStorage.setOrCreate('vpnAlive', false);
+        console.warn('Heartbeat', 'vpnAlive → false (连续 ' + this.heartbeatFailCount + ' 次失败)');
+      }
+    }
   }
 
   // 加载激活的订阅配置到核心（开 VPN 前必须执行，否则核心 currentConfig=nil 崩溃）
@@ -70,17 +151,19 @@ export class AppService {
         params: {
           'is-patch': false,
           'is-compatible': false,
-          'selected-map': {},
+          // P3 持久化：恢复上次选择的组节点（跨进程共享文件）
+          'selected-map': this.context
+            ? await SelectedMapStore.load(this.context, activeId) : {},
           'override-dns': false,
-          'test-url': 'http://www.gstatic.com/generate_204'
+          'test-url': 'https://www.gstatic.com/generate_204'
         }
       };
       await svc.loadConfig(params);
-      console.log('T5', 'loadActiveProfile OK id=' + activeId);
+      console.log('AppService', 'loadActiveProfile OK id=' + activeId);
       return true;
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
-      console.error('T5', 'loadActiveProfile failed: ' + msg);
+      console.error('AppService', 'loadActiveProfile failed: ' + msg);
       return false;
     }
   }
@@ -89,56 +172,70 @@ export class AppService {
     return this.profileRepo;
   }
 
-  // ---- Preferences 状态归属（T2.4）----
+  // ---- Preferences 状态归属（P2-1 委派到 SettingsRepository）----
   async getPrefString(key: string, def: string): Promise<string> {
-    if (!this.pref) return def;
-    const v = await this.pref.get(key, def);
-    return v as string;
+    return await SettingsRepository.getInstance().getString(key, def);
   }
 
   async setPrefString(key: string, value: string): Promise<void> {
-    if (!this.pref) return;
-    await this.pref.put(key, value);
-    await this.pref.flush();
+    await SettingsRepository.getInstance().setString(key, value);
   }
 
   async getThemeMode(): Promise<ThemeMode> {
-    const v = await this.getPrefString('theme_mode', ThemeMode.System);
-    return v as ThemeMode;
+    return await SettingsRepository.getInstance().getThemeMode();
   }
 
   async setThemeMode(mode: ThemeMode): Promise<void> {
-    await this.setPrefString('theme_mode', mode);
+    await SettingsRepository.getInstance().setThemeMode(mode);
   }
 
+  // P1-2 代理到 ActivationStore（集中处理 Prefs + 跨进程文件 + yaml 同步）
   async getActiveProfileId(): Promise<string> {
-    return await this.getPrefString('active_profile_id', '');
+    return await ActivationStore.getInstance().getActiveProfileId();
   }
 
   async setActiveProfileId(id: string): Promise<void> {
-    await this.setPrefString('active_profile_id', id);
-    // 跨进程共享：写状态文件（VPN 进程读取）
+    await ActivationStore.getInstance().setActiveProfileId(id);
+  }
+
+  // P1-11 手动触发一次心跳（应用回前台、页面 onPageShow 时调用）
+  // 原本 pingCore 是 private（只被 setInterval 调用），公开一个立即触发入口
+  async pingCoreNow(): Promise<void> {
+    await this.pingCore();
+  }
+
+  // P1-4 TUN 重建：L3 变更（DNS/TUN 栈）需要 stopVpn → load → startVpn
+  // 1. 先将 patch 写入 Prefs pendingL3Patch，供 VPN 进程 onCreate 读取
+  // 2. 然后 stopVpn → sleep 800ms → startVpn（VPN 进程重启时会读 pending patch）
+  async rebuildTun(l3Patch: Record<string, Object>): Promise<boolean> {
+    const context = this.context;
+    if (!context) return false;
+    // 1. 写 pendingL3Patch 到 Prefs（VPN 进程读取后清除）
     try {
-      const context = this.context;
-      if (context) {
-        const statePath = context.filesDir + '/active_profile.id';
-        const file = await fs.open(statePath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
-        const encoder = new util.TextEncoder();
-        await fs.write(file.fd, encoder.encodeInto(id).buffer);
-        fs.closeSync(file);
-        // 同步 Go 侧配置格式：profiles/<id>.yaml（Go 核心读取路径，与 <id>/config.yaml 并存）
-        const srcPath = context.filesDir + '/ClashBox/profiles/' + id + '/config.yaml';
-        const dstPath = context.filesDir + '/ClashBox/profiles/' + id + '.yaml';
-        if (await AppService.fileExists(srcPath)) {
-          const data = await AppService.readFile(srcPath);
-          if (data) {
-            await AppService.writeFile(dstPath, data);
-            console.log('T2', '已同步Go配置格式: ' + id + '.yaml');
-          }
-        }
-      }
+      await this.setPrefString('pending_l3_patch', JSON.stringify(l3Patch));
     } catch (e) {
-      console.error('T2', '写激活状态文件失败: ' + String(e));
+      const msg: string = (e instanceof Error) ? e.message : String(e);
+      console.error('TUN', '写 pendingL3Patch 失败: ' + msg);
+      return false;
+    }
+    // 2. 重建 TUN：stopVpn → sleep → startVpn
+    const vpnWant: Want = {
+      deviceId: '',
+      bundleName: context.abilityInfo.bundleName,
+      abilityName: 'ClashVpnAbility',
+      parameters: { requestId: Date.now() }
+    };
+    try {
+      await vpnExtension.stopVpnExtensionAbility(vpnWant);
+      // 等待 VPN 进程释放 TUN fd / socket 资源
+      await new Promise<void>((r) => setTimeout(r, 800));
+      await vpnExtension.startVpnExtensionAbility(vpnWant);
+      console.log('TUN', 'TUN 重建完成');
+      return true;
+    } catch (e) {
+      const msg: string = (e instanceof Error) ? e.message : String(e);
+      console.error('TUN', 'TUN 重建失败: ' + msg);
+      return false;
     }
   }
 
@@ -148,45 +245,10 @@ export class AppService {
     this.coreState = new CoreState(state, subCode, message);
   }
 
-  // T7.1 GeoX 数据内置：resfile → 核心工作目录
-  async initGeoIp(context: common.UIAbilityContext): Promise<void> {
-    try {
-      const home = await getHome(context);
-      const geoFiles: Array<string> = ['geoip.metadb', 'GeoIP.dat', 'GeoSite.dat', 'ASN.mmdb'];
-      for (let f of geoFiles) {
-        const src = context.resourceDir + '/' + f;
-        const dst = home + '/' + f;
-        const srcBuf: Uint8Array | null = await AppService.readFile(src);
-        if (srcBuf) {
-          AppService.writeFile(dst, srcBuf);
-        }
-      }
-      console.log('T7', 'GeoX 数据就绪: ' + home);
-    } catch (e) {
-      const msg: string = (e instanceof Error) ? e.message : String(e);
-      console.error('T7', 'initGeoIp failed: ' + msg);
-    }
-  }
+  // P2-1 GeoX 数据内置已抽到 installer/GeoDataInstaller.install
+  // P2-1 静态 readFile/writeFile 已抽到 proxy_core/fileUtils
 
-  static async readFile(filePath: string): Promise<Uint8Array | null> {
-    try {
-      const file = await fs.open(filePath);
-      const stats = await fs.stat(filePath);
-      const buf = new ArrayBuffer(stats.size);
-      await fs.read(file.fd, buf);
-      fs.closeSync(file);
-      return new Uint8Array(buf);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  static async writeFile(filePath: string, data: Uint8Array): Promise<void> {
-    const file = await fs.open(filePath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
-    await fs.write(file.fd, data.buffer);
-    fs.closeSync(file);
-  }
-
+  // P3-3 公共化：formatBytes 多处重复，统一在 AppService 静态方法供其他模块引用
   static formatBytes(bytes: number): string {
     if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
     if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
@@ -194,41 +256,14 @@ export class AppService {
     return bytes + ' B';
   }
 
-  // T8.3 一键日志导出：收集关键状态到日志文件
+  // P2-1 一键日志导出委派给 DiagnosticCollector.exportLogs（保留 facade 兼容现有调用方）
   async exportLogs(): Promise<string> {
-    try {
-      const context = this.context;
-      if (!context) return 'no context';
-      const home = await getHome(context);
-      const logPath = home + '/diagnostics.txt';
-      const lines: Array<string> = [];
-      lines.push('=== hmos-openvpn 诊断信息 ===');
-      lines.push('时间: ' + new Date().toISOString());
-      lines.push('核心状态: ' + this.coreState.state + ' (subCode=' + this.coreState.subCode + ')');
-      lines.push('工作目录: ' + home);
-      lines.push('激活订阅: ' + (await this.getActiveProfileId()));
-      lines.push('主题: ' + (await this.getThemeMode()));
-      // 文件系统状态
-      const geoFiles: Array<string> = ['geoip.metadb', 'GeoIP.dat', 'GeoSite.dat', 'ASN.mmdb'];
-      for (let f of geoFiles) {
-        const p = home + '/' + f;
-        lines.push(f + ': ' + (await AppService.fileExists(p) ? '存在' : '缺失'));
-      }
-      const content = lines.join('\n') + '\n';
-      const encoder = new util.TextEncoder();
-      await AppService.writeFile(logPath, new Uint8Array(encoder.encodeInto(content).buffer));
-      return logPath;
-    } catch (e) {
-      const msg: string = (e instanceof Error) ? e.message : String(e);
-      return '导出失败: ' + msg;
-    }
+    if (!this.context) return 'no context';
+    return await DiagnosticCollector.exportLogs(this.context, this.coreState, {
+      '激活订阅': await this.getActiveProfileId(),
+      '主题': await SettingsRepository.getInstance().getThemeMode()
+    });
   }
 
-  static async fileExists(path: string): Promise<boolean> {
-    try {
-      return await fs.access(path);
-    } catch (e) {
-      return false;
-    }
-  }
+  // P2-2 fileExists 已统一到 proxy_core/fileUtils（外部通过 import { fileExists } from 'proxy_core' 使用）
 }

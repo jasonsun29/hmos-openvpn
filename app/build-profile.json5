@@ -4,6 +4,10 @@
       {
         "name": "default",
         "type": "HarmonyOS",
+        // 签名路径必须写绝对路径：hvigor/CLI 构建链不支持从 local.properties 解析
+        // ${signing.dir}/${signing.cert.name} 占位符（P1-8 方案实测报 Invalid storeFile）。
+        // 换机器时用 DevEco Studio 的 File→Project Structure→Signing Configs→自动签名重新生成，
+        // 再把生成的三个文件绝对路径填到这里。
         "material": {
           "certpath": "/Users/jason/.ohos/config/default_app_Fb9Tl5lx4X1L2-7u2wa5Z5iDLEWbSb6WJ2bbp9loA5Y=.cer",
           "keyAlias": "debugKey",

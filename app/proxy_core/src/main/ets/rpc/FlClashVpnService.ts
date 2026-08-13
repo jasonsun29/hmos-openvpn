@@ -221,12 +221,14 @@ export interface Fd {
 export function ParseProxyGroup(mode, result: string): ProxyGroup[] {
   if (result == null)
     return []
+  // P3 防御：调用方可能传小写按钮值（global/rule/direct），统一大写后与枚举比较
+  const normalizedMode: string = String(mode).toUpperCase();
   const map = JSON.parse(result) as Record<string, string | Record<string, string[] | string>>
   const global = map[ProxyMode.Global]
   let groupNames = global?.["all"] as string[] ?? []
-  if (mode == ProxyMode.Global) {
+  if (normalizedMode == ProxyMode.Global) {
     groupNames = ["GLOBAL", ...groupNames]
-  } else if (mode == ProxyMode.Rule) {
+  } else if (normalizedMode == ProxyMode.Rule) {
     groupNames = groupNames
   } else {
     groupNames = []

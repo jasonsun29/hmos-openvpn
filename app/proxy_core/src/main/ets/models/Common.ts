@@ -142,18 +142,21 @@ export class TrafficValue{
   value: number
   show: number
   unit: TrafficUnit
-  constructor(value: number) {
+  // P3 测试修复：undefined 是合法输入（value ?? 0 防御），参数改为可选，
+  // 让 ohosTest 用例免于 `undefined as unknown as number`（arkts-no-any-unknown）
+  constructor(value?: number) {
     this.value = value ?? 0
-    if (this.value > Math.pow(1024, 4)) {
+    // P3 测试修复：边界用 >=（原 > 导致 1024 落 B、1024² 落 KB 等换算错误）
+    if (this.value >= Math.pow(1024, 4)) {
       this.show = (this.value / Math.pow(1024, 4))
       this.unit = TrafficUnit.TB
-    }else if (this.value > Math.pow(1024, 3)) {
+    }else if (this.value >= Math.pow(1024, 3)) {
       this.show = (this.value / Math.pow(1024, 3))
       this.unit = TrafficUnit.GB
-    }else if (this.value > Math.pow(1024, 2)) {
+    }else if (this.value >= Math.pow(1024, 2)) {
       this.show = (this.value / Math.pow(1024, 2))
       this.unit = TrafficUnit.MB
-    }else if (this.value > Math.pow(1024, 1)) {
+    }else if (this.value >= Math.pow(1024, 1)) {
       this.show = (this.value / Math.pow(1024, 1))
       this.unit = TrafficUnit.KB
     } else{

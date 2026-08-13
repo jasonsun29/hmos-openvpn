@@ -18,3 +18,10 @@ local.properties
 **/libs/arm64-v8a/*.so
 **/libs/x86_64/*.so
 *.hap
+
+# AI agent 工具目录（devecocli skills 安装产物，含 node_modules，不入库）
+**/.claude/
+**/.qoder/
+**/.trae-cn/
+**/.codex/
+**/.codebuddy/

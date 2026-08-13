@@ -11,8 +11,10 @@ import { common } from '@kit.AbilityKit';
 import { ConfigurationConstant } from '@kit.AbilityKit';
 import { AppService } from '../service/AppService';
 import { SocketProxyService, UpdateConfigParams, ClashConfig, DnsEnhancedMode, TunStack,
-  ProxyMode, Dns, Tun } from 'proxy_core';
+  ProxyMode, Dns, Tun, getHome } from 'proxy_core';
 import { promptAction } from '@kit.ArkUI';
+// P3-8 GeoX 更新时间读取（statSync）
+import { fileIo } from '@kit.CoreFileKit';
 
 @Component
 export struct SettingsPage {
@@ -21,6 +23,10 @@ export struct SettingsPage {
   @State port: string = '7980';
   @State dnsModeIndex: number = 0; // fake-ip
   @State tunStackIndex: number = 0; // system
+  // P3-8 GeoX 数据
+  @State geoLastUpdate: string = '--';
+  @State geoUpdating: boolean = false;
+  @StorageLink('vpnOn') vpnOn: boolean = false;
   private appService: AppService = AppService.getInstance();
 
   aboutToAppear(): void {
@@ -28,6 +34,7 @@ export struct SettingsPage {
     this.appService.getThemeMode().then((mode: ThemeMode) => {
       this.themeIndex = mode === ThemeMode.Light ? 0 : (mode === ThemeMode.Dark ? 1 : 2);
     });
+    this.refreshGeoTime();
   }
 
   setTheme(index: number): void {
@@ -39,7 +46,7 @@ export struct SettingsPage {
       this.appService.setThemeMode(mode);
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
-      console.error('M1', 'setColorMode failed: ' + msg);
+      console.error('Settings', 'setColorMode failed: ' + msg);
     }
   }
 
@@ -55,24 +62,28 @@ export struct SettingsPage {
     }, '端口已更新: ' + p);
   }
 
-  // T6.3 DNS 模式（L3 变更）
+  // T6.3 DNS 模式（P1-4 L3 变更 → TUN 重建）
   async applyDnsMode(): Promise<void> {
-    await this.patchConfig((cfg: ClashConfig) => {
-      const dns = new Dns();
-      dns.enable = true;
-      dns['enhanced-mode'] = this.dnsModeIndex === 0 ? DnsEnhancedMode.FakeIp : DnsEnhancedMode.Mapping;
-      cfg.dns = dns;
-    }, 'DNS 模式已更新（TUN 重建中...）');
+    const enhancedMode = this.dnsModeIndex === 0 ? 'fake-ip' : 'redir-host';
+    promptAction.showToast({ message: 'TUN 重建中（DNS → ' + enhancedMode + '）...' });
+    const ok: boolean = await this.appService.rebuildTun({ 'dnsEnhancedMode': enhancedMode });
+    if (ok) {
+      promptAction.showToast({ message: 'DNS 模式已更新' });
+    } else {
+      promptAction.showToast({ message: 'TUN 重建失败' });
+    }
   }
 
-  // T6.4 TUN 栈（L3 变更）
+  // T6.4 TUN 栈（P1-4 L3 变更 → TUN 重建）
   async applyTunStack(): Promise<void> {
-    await this.patchConfig((cfg: ClashConfig) => {
-      const tun: Tun = cfg.tun ? cfg.tun : new Tun();
-      tun.stack = this.tunStackIndex === 0 ? TunStack.System : (this.tunStackIndex === 1 ? TunStack.Gvisor : TunStack.Mixed);
-      tun.enable = true;
-      cfg.tun = tun;
-    }, 'TUN 栈已更新（TUN 重建中...）');
+    const stack = this.tunStackIndex === 0 ? 'system' : (this.tunStackIndex === 1 ? 'gvisor' : 'mixed');
+    promptAction.showToast({ message: 'TUN 重建中（stack → ' + stack + '）...' });
+    const ok: boolean = await this.appService.rebuildTun({ 'tunStack': stack });
+    if (ok) {
+      promptAction.showToast({ message: 'TUN 栈已更新' });
+    } else {
+      promptAction.showToast({ message: 'TUN 重建失败' });
+    }
   }
 
   // T2.3 配置合成管线（patch 下发）
@@ -209,6 +220,31 @@ export struct SettingsPage {
           .backgroundColor(this.colors.card)
         }
 
+        // P3-8 GeoX 数据（geoip/geosite/asn 规则库）
+        ListItem() {
+          Row({ space: 8 }) {
+            Column({ space: 2 }) {
+              Text('GeoX 数据')
+                .fontSize(15)
+                .fontColor(this.colors.textPrimary)
+              Text('上次更新: ' + this.geoLastUpdate)
+                .fontSize(11)
+                .fontColor(this.colors.textSecondary)
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+            Button(this.geoUpdating ? '更新中...' : '更新')
+              .fontSize(12)
+              .height(32)
+              .backgroundColor(this.colors.primary)
+              .onClick(() => this.updateGeoData())
+          }
+          .width('100%')
+          .padding(16)
+          .borderRadius(12)
+          .backgroundColor(this.colors.card)
+        }
+
         // T8.3 日志导出
         ListItem() {
           Row() {
@@ -241,6 +277,62 @@ export struct SettingsPage {
   async exportLogs(): Promise<void> {
     const path = await this.appService.exportLogs();
     promptAction.showToast({ message: '日志已导出: ' + path });
+  }
+
+  // P3-8 读 GeoX 数据文件的 mtime，展示"上次更新"
+  async refreshGeoTime(): Promise<void> {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const home = await getHome(context);
+      const geoPath = home + '/geoip.metadb';
+      if (!fileIo.accessSync(geoPath)) {
+        this.geoLastUpdate = '未安装';
+        return;
+      }
+      const stat = fileIo.statSync(geoPath);
+      // fs.Stat.mtime 单位是秒（Unix 时间戳），Date.now() 是毫秒 → 先乘 1000
+      const mtimeMs: number = stat.mtime * 1000;
+      const days = Math.floor((Date.now() - mtimeMs) / 86400000);
+      this.geoLastUpdate = days <= 0 ? '今天' : (days === 1 ? '1 天前' : days + ' 天前');
+    } catch (e) {
+      this.geoLastUpdate = '未知';
+    }
+  }
+
+  // P3-8 GeoX 更新：走 Go IPC（clash_go.sock），VPN 必须已启动
+  // Go 端约定 [geoType, geoName]：geoType ∈ MMDB/ASN/GeoIp/GeoSite，
+  // geoName 为文件名（Path.Resolve 拼到核心工作目录）；下载地址来自配置的 geox-url。
+  async updateGeoData(): Promise<void> {
+    console.log('Settings', 'updateGeoData click, geoUpdating=' + this.geoUpdating + ', vpnOn=' + this.vpnOn);
+    if (this.geoUpdating) {
+      return; // 防重复（不用 enabled 禁用，与 M2 按钮防抖经验一致）
+    }
+    const svc: SocketProxyService | undefined = this.appService.getProxyService();
+    if (!svc || !this.vpnOn) {
+      console.warn('Settings', 'updateGeoData 跳过: svc=' + (svc !== undefined) + ', vpnOn=' + this.vpnOn);
+      promptAction.showToast({ message: 'VPN 未启动，无法更新' });
+      return;
+    }
+    this.geoUpdating = true;
+    promptAction.showToast({ message: 'GeoX 更新中...' });
+    try {
+      const results: string[] = [];
+      results.push(await svc.updateGeoData('MMDB', 'geoip.metadb'));
+      results.push(await svc.updateGeoData('GeoIp', 'GeoIP.dat'));
+      results.push(await svc.updateGeoData('GeoSite', 'GeoSite.dat'));
+      results.push(await svc.updateGeoData('ASN', 'ASN.mmdb'));
+      const errors: string[] = results.filter((r: string) => r !== '');
+      if (errors.length > 0) {
+        promptAction.showToast({ message: '部分更新失败: ' + errors.join('; ') });
+      } else {
+        promptAction.showToast({ message: 'GeoX 更新完成' });
+      }
+      await this.refreshGeoTime();
+    } catch (e) {
+      promptAction.showToast({ message: '更新失败: ' + String(e) });
+    } finally {
+      this.geoUpdating = false;
+    }
   }
 
   @Builder

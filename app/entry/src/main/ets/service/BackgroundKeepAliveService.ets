@@ -8,6 +8,7 @@ import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { notificationManager } from '@kit.NotificationKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { AppService } from './AppService';
+import { CoreLogger } from '../logger/CoreLogger';
 
 export class BackgroundKeepAliveService {
   private notificationId?: number = undefined;
@@ -24,12 +25,12 @@ export class BackgroundKeepAliveService {
   // 启动长时任务 + 常驻通知
   async start(context: common.Context): Promise<void> {
     if (this.notificationId !== undefined) {
-      console.log('T7', '保活任务已在运行');
+      console.log('BgKeepAlive', '保活任务已在运行');
       return;
     }
     const id = await this.startContinuousTask(context);
     if (id < 0) {
-      console.error('T7', '无法启动后台长时任务');
+      console.error('BgKeepAlive', '无法启动后台长时任务');
       return;
     }
     this.notificationId = id;
@@ -37,20 +38,41 @@ export class BackgroundKeepAliveService {
     this.noticeTimer = setInterval(() => {
       this.updateTraffic(context);
     }, 10000);
-    console.log('T7', '后台保活已启动');
+    // P2-4 启动核心日志落盘（VPN 已启动，socket 可用，订阅 setLogObserver 落盘到 core.log）
+    const svc = AppService.getInstance().getProxyService();
+    if (svc) {
+      CoreLogger.getInstance().install(svc, context.filesDir).catch((e: Error) => {
+        const msg: string = (e instanceof Error) ? e.message : String(e);
+        console.warn('BgKeepAlive', 'CoreLogger.install 失败: ' + msg);
+      });
+    }
+    console.log('BgKeepAlive', '后台保活已启动');
   }
 
   async stop(context: common.Context): Promise<void> {
+    // P2-4 卸载核心日志订阅器
+    CoreLogger.getInstance().uninstall();
     if (this.noticeTimer !== undefined) {
       clearInterval(this.noticeTimer);
       this.noticeTimer = undefined;
     }
+    const savedId: number | undefined = this.notificationId;
     this.notificationId = undefined;
     try {
       await backgroundTaskManager.stopBackgroundRunning(context);
-      console.log('T7', '后台保活已停止');
+      console.log('BgKeepAlive', '后台保活已停止');
     } catch (e) {
-      console.error('T7', '停止后台任务失败: ' + String(e));
+      console.error('BgKeepAlive', '停止后台任务失败: ' + String(e));
+    }
+    // P2-7 显式取消常驻通知：startContinuousTask 返回的 notificationId 即通知 id
+    // 原代码漏掉 cancel()，导致 VPN 关后系统通知栏仍残留 "VPN 隧道运行中"
+    if (savedId !== undefined) {
+      try {
+        await notificationManager.cancel(savedId);
+      } catch (e) {
+        const err = e as BusinessError;
+        console.warn('BgKeepAlive', 'cancel notification: ' + err.code + ' ' + err.message);
+      }
     }
   }
 
@@ -72,7 +94,7 @@ export class BackgroundKeepAliveService {
       return id;
     } catch (e) {
       const err = e as BusinessError;
-      console.error('T7', 'startContinuousTask failed: ' + err.code + ' ' + err.message);
+      console.error('BgKeepAlive', 'startContinuousTask failed: ' + err.code + ' ' + err.message);
       return -1;
     }
   }
@@ -90,7 +112,7 @@ export class BackgroundKeepAliveService {
         this.updateProcess(this.notificationId, message);
       }
     } catch (e) {
-      console.error('T7', 'updateTraffic: ' + String(e));
+      console.error('BgKeepAlive', 'updateTraffic: ' + String(e));
     }
   }
 
@@ -121,7 +143,7 @@ export class BackgroundKeepAliveService {
         isLocalOnly: true
       } as notificationManager.NotificationRequest;
       notificationManager.publish(request).catch((e: BusinessError) => {
-        console.error('T7', 'publish notification: ' + e.code + ' ' + e.message);
+        console.error('BgKeepAlive', 'publish notification: ' + e.code + ' ' + e.message);
       });
     });
   }

@@ -5,14 +5,56 @@ import { common } from '@kit.AbilityKit';
 import { ClashRpcType, IClashManager, VpnRawOptions } from './IClashManager';
 import { ConnectionInfo, IpInfo, LogInfo, Provider, ProxyGroup, ProxyMode,
   Traffic } from '../models/Common';
-import  fs from  "@ohos.file.fs"
 import { fileIo, fileUri } from "@kit.CoreFileKit";
 import { PromptAction } from '@kit.ArkUI';
 import { UpdateConfigParams } from '../models/ClashConfig';
 import { checkIp, queryCurrentIpInfo } from '../Request';
 import { Fd, ParseProxyGroup, VpnOptions } from './FlClashVpnService';
-import { getVpnOptions, setFdMap } from 'libflclash.so';
+// P1-1 移除 libflclash.so import：UI 进程走 IPC，不走 NAPI
+// import { getVpnOptions, setFdMap } from 'libflclash.so';
 import { Address, isIpv4, isIpv6, VpnConfig } from './CommonVpnService';
+
+/*
+ * hmos-openvpn P0-2 toast 限频：同一消息 1s 内合并计数
+ * 场景：100+ 节点测速全部 RPC 失败时，原代码会 showToast 100+ 次造成 UI 假死
+ * 策略：1s 内的同消息合并，只显示第一条；不同消息独立计数
+ */
+class ToastThrottler {
+  private static lastMsg: string = ''
+  private static lastAt: number = 0
+  private static count: number = 0
+  private static lastDiffMsg: string = ''
+  private static lastDiffAt: number = 0
+
+  static show(prompt: PromptAction | undefined, msg: string): void {
+    if (!prompt) return
+    const now = Date.now()
+    if (msg === ToastThrottler.lastMsg) {
+      if (now - ToastThrottler.lastAt < 1000) {
+        ToastThrottler.count++
+        return
+      }
+      // 超 1s：如果之前合并了计数，补一条尾提示
+      if (ToastThrottler.count > 1) {
+        prompt.showToast({ message: `${msg}（合并 ${ToastThrottler.count} 条）` })
+        ToastThrottler.count = 0
+        ToastThrottler.lastAt = now
+        return
+      }
+    } else {
+      // 不同消息：也要限频（1s 内最多 1 次）
+      if (msg === ToastThrottler.lastDiffMsg && now - ToastThrottler.lastDiffAt < 1000) {
+        return
+      }
+      ToastThrottler.lastDiffMsg = msg
+      ToastThrottler.lastDiffAt = now
+    }
+    ToastThrottler.lastMsg = msg
+    ToastThrottler.lastAt = now
+    ToastThrottler.count = 1
+    prompt.showToast({ message: msg })
+  }
+}
 
 interface DelayInfo{
   name: string
@@ -48,7 +90,9 @@ export class SocketProxyService implements IClashManager {
     return this.callbackRequest(ClashRpcType.registerOnMessage, [], observer)
   }
   async loadConfig(config: UpdateConfigParams): Promise<string> {
-    config['profile-id'] = config['profile-id'] + "/config"
+    // P1-5 去掉 "+ '/config'" 拼接 hack：Go 端 getProfilePath(id) 读 profiles/<id>.yaml，
+    // 该文件由 ActivationStore.syncGoConfigYaml 从 <id>/config.yaml 同步生成（ArkTS 不改路径）
+    // ClashVpnAbility.loadActiveConfig 也传 raw id，两端一致
     let result =  await this.sendMessageRequest(ClashRpcType.load, [JSON.stringify(config)])
     return result as string
   }
@@ -137,25 +181,33 @@ export class SocketProxyService implements IClashManager {
     return  (await this.sendMessageRequest(ClashRpcType.updateProvider,[provider.name])) as string
   }
   async upLoadProvider(provider: Provider, uri: string): Promise<string> {
-    const temp = this.context?.filesDir + "/temp_provider"
-    fs.copy(uri, fileUri.getUriFromPath(temp))
-    return  (await this.sendMessageRequest(ClashRpcType.uploadProvider,[provider.name, temp])) as string
+    const temp = this.context?.filesDir + "/temp_provider";
+    // P2-13 fileIo.copy 替代 fs.copy（API 签名一致，去掉 fileUri.getUriFromPath）
+    fileIo.copy(uri, temp);
+    return (await this.sendMessageRequest(ClashRpcType.uploadProvider, [provider.name, temp])) as string;
   }
-  async updateGeoData(geoName: string, geoType: string): Promise<string>{
-    return await (this.sendMessageRequest(ClashRpcType.updateGeoData,[geoName, geoType])) as string
+  // P3-8 修正参数顺序：Go IPC 端约定 Params[0]=geoType(MMDB/ASN/GeoIp/GeoSite)、
+  // Params[1]=geoName(文件名，经 Path.Resolve 拼到核心工作目录)。
+  // 原签名 (geoName, geoType) 名字反了且发送顺序反了，会导致 Go 侧 switch 无匹配、RPC 挂到超时。
+  // P3 真机验证：下载单个库最多 90s（Go 侧 context），UI socket 超时给 120s，
+  // 否则大文件（mmdb ~13MB）还没下完 UI 就先超时报错。
+  async updateGeoData(geoType: string, geoName: string): Promise<string>{
+    return await (this.sendMessageRequest(ClashRpcType.updateGeoData,[geoType, geoName], 120000)) as string
   }
   async changeProxy(group: string, name: string): Promise<string> {
     let result = await this.sendMessageRequest(ClashRpcType.changeProxy,[group, name])
     return result as string
   }
   async healthCheck(proxyName: string): Promise<number> {
-    let result = await this.sendMessageRequest(ClashRpcType.healthCheck, [proxyName, 3000])
+    // P0-1 独立短超时：3s socket 超时（不走默认 10s）
+    let result = await this.sendMessageRequest(ClashRpcType.healthCheck, [proxyName, 3000], 3000)
     let info = JSON.parse(result as string) as DelayInfo
     return info.value
   }
 
   async healthCheckWithTimeout(proxyName: string, timeoutMs: number): Promise<number> {
-    let result = await this.sendMessageRequest(ClashRpcType.healthCheck, [proxyName, timeoutMs])
+    // P0-1 独立短超时：socket 超时 = timeoutMs（给 1s 余量），不走默认 10s
+    let result = await this.sendMessageRequest(ClashRpcType.healthCheck, [proxyName, timeoutMs], timeoutMs + 1000)
     let info = JSON.parse(result as string) as DelayInfo
     return info.value
   }
@@ -199,11 +251,13 @@ export class SocketProxyService implements IClashManager {
   }
   async ParseMessage(messageBuffer: string, resolve: (s: string| number | boolean | undefined)=>void, reject:  (err: string)=>void){
     try {
+      // P1-3 调用方已按 EOF 分隔符裁剪，此处不再 replace("EOF","")
       let json = JSON.parse(messageBuffer) as RpcResult
       if (!json.error || json.error == "")
         resolve(json.result)
       else{
-        SocketProxyService.promptAction.showToast({message: JSON.stringify(json.error)})
+        // P0-2 toast 限频
+        ToastThrottler.show(SocketProxyService.promptAction, JSON.stringify(json.error))
         resolve(json.error)
       }
     } catch (e) {
@@ -213,34 +267,47 @@ export class SocketProxyService implements IClashManager {
   }
   async sendMessageRequest(
     method: number,
-    params: (string| number | boolean) [] = []
+    params: (string| number | boolean) [] = [],
+    timeoutMs?: number
   ): Promise<string| number | boolean | undefined>{
-    console.log("sendMessageRequest " + method)
+    // P0-1 默认 10s，healthCheck 等场景传更短的超时
+    const socketTimeout = timeoutMs ?? 10000
+    console.log("sendMessageRequest " + method + " (socket timeout=" + socketTimeout + "ms)")
+    // P1-3 NDJSON-with-EOF 分隔：Go 侧响应格式 = json + "EOF"
+    // 之前用 200ms debounce 等齐，导致每次 RPC 至少 +200ms 延迟，且 closure 内 fullMessage='' 清空无效
+    // 改为：增量接收 buffer，扫描到 "EOF" 立即裁帧解析，不再 debounce
+    const FRAME_DELIM = 'EOF'
     return new Promise(async (resolve, reject)=>{
       let client: socket.LocalSocket = socket.constructLocalSocketInstance();
       let text = new util.TextDecoder()
-      let fullMessage = '';
-      let timeout = true
-      let parseMessage = debounce((message)=>{
-        timeout = false
-        this.ParseMessage(message.replace("EOF",""), resolve, reject)
-        message = ''
-        fullMessage = ''
-        client.close()
-      }, 200)
-        client.on('message', async (value: socket.LocalSocketMessageInfo) => {
-        let chunk = text.decodeToString(new Uint8Array(value.message),  { stream: true })
-        fullMessage += chunk;
-        parseMessage(fullMessage)
+      let buffer = ''
+      let done = false
+      const onFrame = (frame: string) => {
+        if (done) return
+        done = true
+        this.ParseMessage(frame, (v) => { client.close(); resolve(v) }, (e) => { client.close(); reject(e) })
+      }
+      const tryExtractFrame = (): boolean => {
+        const idx = buffer.indexOf(FRAME_DELIM)
+        if (idx < 0) return false
+        onFrame(buffer.substring(0, idx))
+        buffer = buffer.substring(idx + FRAME_DELIM.length)
+        return true
+      }
+      client.on('message', async (value: socket.LocalSocketMessageInfo) => {
+        if (done) return
+        const chunk = text.decodeToString(new Uint8Array(value.message), { stream: true })
+        buffer += chunk
+        tryExtractFrame()
       })
       setTimeout(()=>{
-        if (timeout) {
-          reject("请求超时")
+        if (!done) {
+          reject("请求超时(" + socketTimeout + "ms)")
           client.close();
         }
-      }, 10000)
+      }, socketTimeout)
       client.on("error", ()=>{
-        reject("rpc client error")
+        if (!done) reject("rpc client error")
       })
       // {"proxy-name":"♻️自动选择","timeout":3000}
       let socketPath = this.context?.filesDir + '/clash_go.sock'
@@ -248,9 +315,10 @@ export class SocketProxyService implements IClashManager {
       if (method == ClashRpcType.startClash || method == ClashRpcType.stopClash){
         socketPath = this.context?.filesDir + '/ClashBox.sock'
       }
-      if(!await fileIo.access(socketPath, fs.AccessModeType.EXIST))
+      if (!await fileIo.access(socketPath))
       {
-        SocketProxyService.promptAction.showToast({message: "VPN服务启动失败"})
+        // P0-2 toast 限频
+        ToastThrottler.show(SocketProxyService.promptAction, "VPN服务启动失败")
         reject(new Error("VPN服务未启动"))
         return;
       }
@@ -262,17 +330,11 @@ export class SocketProxyService implements IClashManager {
         this.active = false
         console.error("vpn服务启动失败", e.message, e.stack)
         if (e.message == "Connection refused"){
-          try {
-            SocketProxyService.promptAction.showToast({ message: "VPN服务被系统干掉了" })
-          } catch (error) {
-            console.error(`VPN服务断开提示弹窗error：${JSON.stringify(error)}`)
-          }
+          // P0-2 toast 限频
+          ToastThrottler.show(SocketProxyService.promptAction, "VPN服务被系统干掉了")
         } else {
-          try {
-            SocketProxyService.promptAction.showToast({ message: "vpn服务失败: " + e.message })
-          } catch (error) {
-            console.error(`VPN服务失败提示弹窗error：${JSON.stringify(error)}`)
-          }
+          // P0-2 toast 限频
+          ToastThrottler.show(SocketProxyService.promptAction, "vpn服务失败: " + e.message)
         }
         reject(e)
       });
@@ -283,22 +345,30 @@ export class SocketProxyService implements IClashManager {
     params: (string | number | boolean) [] = [],
     callBack: (message: string) => void
   ): Promise<() => void> {
+    // P1-3 同样改为 NDJSON-with-EOF 增量解析：每次新 chunk 累加到 buffer，
+    // 反复扫描 "EOF" 边界，裁出一帧后立即 JSON.parse 并回调（多用于日志/消息推送）
+    const FRAME_DELIM = 'EOF'
     return new Promise(async (resolve, reject)=>{
       let tcp: socket.LocalSocket = socket.constructLocalSocketInstance();
+      let buffer = ''
+      const text = new util.TextDecoder()
       tcp.on('message', (value: socket.LocalSocketMessageInfo) => {
-        let text = new util.TextDecoder()
-        let dd = text.decodeToString(new Uint8Array(value.message))
-        let list = dd.split("EOF")
-        for (let index = 0; index < list.length; index++) {
-          const element = list[index];
-          try {
-            if (element != ""){
-              let json = JSON.parse(element) as RpcResult
+        const chunk = text.decodeToString(new Uint8Array(value.message), { stream: true })
+        buffer += chunk
+        let idx = buffer.indexOf(FRAME_DELIM)
+        while (idx >= 0) {
+          const frame = buffer.substring(0, idx)
+          buffer = buffer.substring(idx + FRAME_DELIM.length)
+          if (frame !== '') {
+            try {
+              const json = JSON.parse(frame) as RpcResult
               callBack(json.result as string)
+            } catch (e) {
+              const msg: string = (e instanceof Error) ? e.message : String(e)
+              console.error("log error", msg, frame)
             }
-          }catch (e) {
-            console.error("log error", e.message, element)
           }
+          idx = buffer.indexOf(FRAME_DELIM)
         }
       })
       tcp.on('error', (e: Error) => {
@@ -316,16 +386,6 @@ export class SocketProxyService implements IClashManager {
       });
     })
   }
-}
-
-function debounce(func:(json: string)=>void, delay =100) {
-  let timer = 0;
-  return (json: string) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      func(json);
-    }, delay);
-  };
 }
 
 export default new SocketProxyService()

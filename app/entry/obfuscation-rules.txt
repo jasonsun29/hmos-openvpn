@@ -1,20 +1,12 @@
 # Define project specific obfuscation rules here.
 # You can include the obfuscation configuration files in the current module's build-profile.json5.
 
-# Obfuscation options:
-# -disable-obfuscation: disable all obfuscations
-# -enable-property-obfuscation: obfuscate the property names
-# -enable-toplevel-obfuscation: obfuscate the names in the global scope
-# -compact: remove unnecessary blank spaces and all line feeds
-# -remove-log: remove all console.* statements
-# -print-namecache: print the name cache that contains the mapping from the old names to new names
-# -apply-namecache: reuse the given cache file
-
-# Keep options:
-# -keep-property-name: specifies property names that you want to keep
-# -keep-global-name: specifies names that you want to keep in the global scope
-
+# P2-12 entry 模块温和混淆：仅开启 property 混淆 + 删日志，不开 export/filename 混淆
+# 原因：
+#   - entry 是应用入口，不被其他模块依赖，开启 export 混淆安全
+#   - 但 entry 依赖 proxy_core 的 export（SocketProxyService 等），混淆 entry 端 wrapper 即可
+#   - 字段名（@State xxx）混淆会破坏 IPC 帧处理 json key，所以只混淆私有属性 + 函数体
+# -enable-property-obfuscation 默认会跳过 NAPI / @State / @StorageLink 命中字段，安全
+# -remove-log 删除 console.* 调试日志，release 包更轻
 -enable-property-obfuscation
--enable-toplevel-obfuscation
--enable-filename-obfuscation
--enable-export-obfuscation
+-remove-log
