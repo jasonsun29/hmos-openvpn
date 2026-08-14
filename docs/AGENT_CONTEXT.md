@@ -153,3 +153,18 @@
 - 应用沙箱无 shell 写权限（uid 2000）：fixture 注入走应用自身 URL 导入（HTTPS 必须——自签证书被正确拒绝 2300060，安全行为）
 - 首次 TextInput 聚焦会弹小艺输入法向导（两次"下一步"完成）
 - 表单添加：桌面长按 → 编辑桌面 → 卡片 → 自定义 → 选应用 → 添加至桌面
+
+## 真机回归（2026-08-15，Pura X Max 折叠态 1264×1848px≈459vp，commit 382981e）
+
+**全局模式硬性需求三点全部真机验证通过**：
+1. **持久化**：离线选"故障转移"→ selected_map.json（GLOBAL 键）→ 杀进程重启 ✓ 标记/模式保留
+2. **全局模式定义**：VPN 启动核心日志 `VpnAbility 模式=GLOBAL 端点=故障转移` + updateConfig `mode:"GLOBAL"` + `selected-map{"GLOBAL":"故障转移"}`；**飞书等 CN 服务流量全部 `using GLOBAL`**（证明不是规则分流，而是全量走代理）
+3. **直连才不走代理**：切直连后核心日志 `dial DIRECT`/`using DIRECT`（模式热切换，无需重启 VPN）；VPN 重启自动恢复 GLOBAL+故障转移
+
+**模拟器修复项真机复验**：模式指示器三态 / 编辑器 Sheet（双 bindSheet 修复生效）/ QR 生成（真机 ScanKit 正常，clash://install URL 正确）/ 服务卡片全链路（长按图标→卡片→预览→添加→桌面渲染"VPN 已连接"实时状态）/ 连接+规则页轮询泄漏修复（离开后仅剩合法心跳+流量轮询）
+
+**真机新发现并修复（本次 commit）**：
+- 连接时长显示 "NaNhNaNm"：mihomo `connection.start` 是 RFC3339 字符串、模型标 number → formatDuration 兼容 number/RFC3339 双格式
+- vpnOn 落盘权威化：ClashVpnAbility onCreate/onDestroy 写 vpnOn（VPN 进程存活=权威），Home 心跳复位同步落盘 → 服务卡片不再假显示"已连接"
+
+**已知限制**：订阅节点全部死亡（无法演示真实代理出口，路由语义已由日志证明）；展开态侧栏待用户展开设备复验（widefold 模拟器同代码路径已过）。
