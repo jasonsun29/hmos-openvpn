@@ -24,6 +24,8 @@ export default class ClashVpnAbility extends VpnExtensionAbility {
       // startVpn 返回 void（lint: await-thenable），不加 await
       this.clashStubService.startVpn();
       console.log('VpnAbility', 'VPN 核心启动成功');
+      // 真机回归补充：VPN 进程存活即权威状态 → 落盘 vpnOn=true（服务卡片/UI 恢复读它）
+      SelectedMapStore.saveVpnOn(this.context, true);
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
       console.error('VpnAbility', '启用VPN失败: ' + msg);
@@ -161,6 +163,8 @@ export default class ClashVpnAbility extends VpnExtensionAbility {
   onDestroy() {
     console.log('VpnAbility', 'VpnExtensionAbility onDestroy');
     this.clashStubService?.stopVpn();
+    // 真机回归补充：VPN 进程被销毁即权威关闭 → 落盘 vpnOn=false（卡片不再显示“已连接”）
+    SelectedMapStore.saveVpnOn(this.context, false);
     const lockPath = this.context.filesDir + '/vpn_ipc.lock';
     try {
       fileIo.unlinkSync(lockPath);

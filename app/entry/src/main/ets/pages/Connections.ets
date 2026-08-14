@@ -107,8 +107,22 @@ export struct ConnectionsPage {
     }
   }
 
+  // mihomo 的 connection.start 是 RFC3339 字符串（模型层标为 number），
+  // 直接 Date.now()-start 会得到 NaN → 显示 "NaNhNaNm"（真机实测发现）
   formatDuration(start: number): string {
-    const sec = Math.floor((Date.now() - start) / 1000);
+    let startMs = 0;
+    if (typeof start === 'number' && !isNaN(start) && start > 0) {
+      startMs = start;
+    } else if (typeof start === 'string' && start !== '') {
+      const t = Date.parse(start);
+      if (!isNaN(t)) {
+        startMs = t;
+      }
+    }
+    if (startMs <= 0) {
+      return '--';
+    }
+    const sec = Math.max(0, Math.floor((Date.now() - startMs) / 1000));
     if (sec < 60) return sec + 's';
     if (sec < 3600) return Math.floor(sec / 60) + 'm' + (sec % 60) + 's';
     return Math.floor(sec / 3600) + 'h' + Math.floor((sec % 3600) / 60) + 'm';

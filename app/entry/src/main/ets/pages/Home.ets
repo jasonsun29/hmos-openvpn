@@ -53,6 +53,9 @@ export struct HomePage {
       this.vpnOn = false;
       this.vpnState = 'vpn_disconnected';
       this.stopTrafficPoll();
+      // 真机回归补充：同步落盘 vpnOn，避免服务卡片继续显示“已连接”
+      const context = getContext(this) as common.UIAbilityContext;
+      SelectedMapStore.saveVpnOn(context, false);
     }
   }
 
