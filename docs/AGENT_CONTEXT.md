@@ -87,6 +87,13 @@
   - **存疑部分（明日重做方向）**：YamlGlobalPatch——无 Go 重编译约束下，在 Go 格式 yaml 同步时给 GLOBAL 组补全成员（DIRECT/REJECT+组名+节点名）。已发现并修复两个大坑：①TextEncoder 池化 ArrayBuffer 尾部陈旧字节被写盘（53 行平移副本+坏规则 MATCH,桔子云.in-addr.arpa，核心报 rules[5383] error——已修 fileUtils.writeFile 及全部写盘点，按视图 byteLength 截断+TRUNC）②插入块缩进风格与原文件混排导致 yaml 非法（mihomo 宽容解析吞掉成员）——已重写为缩进自适应+独立 dash 风格，**最新版尚未真机验证**
   - 设备当前状态：device yaml 为缩进混排版本（mihomo 宽容解析通过、核心可跑）；明日应从干净 config.yaml 重新同步验证
   - 明日待办：①评估 yaml 补丁方案或换路线（重编译 Go / 接受机场现状等）②干净 config.yaml 重同步 + 验证 GLOBAL 成员 ③继续第四批（t33/t43/t44）
+- **M3 锦上添花 + M2 遗漏补齐完成（2026-08-15，提交 5680744）**：
+  - 主题色自定义（预设 10 色板 + 修复主题应用机制：原 getColors 无调用方、colors 恒浅色；现在 MainPage.applyTheme 按模式×自定义色解析，themeChanged 广播即时生效）
+  - 订阅二维码分享（Profiles「二维码」按钮 → clash://install?url= 二维码，与 t41 扫码导入闭环）
+  - unlock 流媒体检测页（第 8 页，10 服务；UI 进程 http 经 VPN 出口检测；核心逐节点×逐服务检测留作 spike：healthCheck 仅支持单一 test-url）
+  - 鸿蒙服务卡片 v1（VpnCardFormAbility，2*2/2*4，VPN 状态+模式，点击打开应用；SelectedMapStore 增 vpnOn 状态；form_config uiSyntax=arkts 是构建必需字段）
+  - 折叠态降级布局（宽 <640vp 侧栏降级 64vp 图标栏）
+  - 构建通过、lint 0 error、单测 30/30；**全部真机验收待设备连接**
 - **P3 重构（2026-08-15，按用户三点要求重做，替代 yaml 补丁方案）**：
   - 用户需求：①选端点不能依赖 VPN 在线 ②默认全局模式 ③全局端点与订阅结构无关（直连=不走代理、其他=全走所选端点）
   - 新架构（YamlGlobalPatch 已删除）：
