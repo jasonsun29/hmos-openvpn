@@ -8,7 +8,7 @@
  */
 import { ThemeColors } from '../model/Theme';
 import { AppService } from '../service/AppService';
-import { Profile, ProfileType, ProfileRepo, SubscriptionInfo, getHome, fileExists, readText, patchGlobalGroupInYaml } from 'proxy_core';
+import { Profile, ProfileType, ProfileRepo, SubscriptionInfo, getHome, fileExists, readText } from 'proxy_core';
 import { common, abilityAccessCtrl } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import { util } from '@kit.ArkTS';
@@ -376,10 +376,10 @@ export struct ProfilesPage {
       const enc1 = encoder.encodeInto(this.editContent);
       fileIo.writeSync(file.fd, enc1.buffer, { offset: 0, length: enc1.byteLength });
       fileIo.closeSync(file);
-      // 同步 Go 格式（P3 全局模式修复：GLOBAL 组补丁一并应用）
+      // 同步 Go 格式（纯拷贝）
       const goPath = home + '/profiles/' + id + '.yaml';
       const goFile = fileIo.openSync(goPath, fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
-      const enc2 = encoder.encodeInto(patchGlobalGroupInYaml(this.editContent));
+      const enc2 = encoder.encodeInto(this.editContent);
       fileIo.writeSync(goFile.fd, enc2.buffer, { offset: 0, length: enc2.byteLength });
       fileIo.closeSync(goFile);
       this.showEditor = false;

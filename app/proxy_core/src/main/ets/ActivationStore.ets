@@ -15,7 +15,6 @@ import { util } from '@kit.ArkTS';
 import { fileIo } from '@kit.CoreFileKit';
 import { getHome } from './appPath';
 import { readFile, writeFile, fileExists } from './fileUtils';
-import { patchGlobalGroupInYaml } from './YamlGlobalPatch';
 
 const PREF_NAME = 'app_settings';
 const PREF_KEY_ACTIVE_ID = 'active_profile_id';
@@ -92,12 +91,7 @@ export class ActivationStore {
       if (await fileExists(srcPath)) {
         const data: Uint8Array | null = await readFile(srcPath);
         if (data) {
-          // P3 全局模式修复：Go 格式 yaml 同步时补全 GLOBAL 组成员
-          const text = new util.TextDecoder().decodeToString(data);
-          const patched = patchGlobalGroupInYaml(text);
-          const encoder = new util.TextEncoder();
-          // 直接传 encodeInto 视图（byteLength=内容长度），writeFile 按视图长度截断写入
-          await writeFile(dstPath, encoder.encodeInto(patched));
+          await writeFile(dstPath, data);
           console.log('ActivationStore', '已同步Go配置格式: ' + id + '.yaml');
         }
       }
@@ -141,14 +135,10 @@ export class ActivationStore {
       const srcPath = home + '/profiles/' + activeId + '/config.yaml';
       const dstPath = home + '/profiles/' + activeId + '.yaml';
       if (await fileExists(srcPath)) {
-        // P3 全局模式修复：每次启动都重新同步（确保 GLOBAL 组补丁生效，
-        // 修复旧版本遗留的未补丁 yaml）
+        // 每次启动都重新同步（纯拷贝；顺带修复旧版本遗留的异常 yaml）
         const data: Uint8Array | null = await readFile(srcPath);
         if (data) {
-          const text = new util.TextDecoder().decodeToString(data);
-          const patched = patchGlobalGroupInYaml(text);
-          const encoder = new util.TextEncoder();
-          await writeFile(dstPath, encoder.encodeInto(patched));
+          await writeFile(dstPath, data);
           console.log('ActivationStore', 'ensureGoConfigYaml OK: ' + activeId);
           return true;
         }

@@ -15,7 +15,8 @@ import { vpnExtension } from '@kit.NetworkKit';
 import { preferences } from '@kit.ArkData';
 import { util } from '@kit.ArkTS';
 // P2-13 文件 API 统一：所有文件操作走 fileIo（@kit.CoreFileKit），删除 fs import
-import { SocketProxyService, getHome, ProfileRepo, UpdateConfigParams, ClashConfig, ActivationStore, SelectedMapStore } from 'proxy_core';
+import { SocketProxyService, getHome, ProfileRepo, UpdateConfigParams, ClashConfig, ActivationStore,
+  SelectedMapStore, ConfigReader, GlobalModeResolver, YamlConfigView, ProxyMode } from 'proxy_core';
 import { CoreState, CoreStateType, ClashErrorCode } from '../model/CoreState';
 import { ThemeMode } from '../model/Theme';
 import { SettingsRepository } from '../repository/SettingsRepository';
@@ -151,9 +152,9 @@ export class AppService {
         params: {
           'is-patch': false,
           'is-compatible': false,
-          // P3 持久化：恢复上次选择的组节点（跨进程共享文件）
+          // P3 持久化 + 全局模式映射（与 VPN 进程启动同一套解析逻辑）
           'selected-map': this.context
-            ? await SelectedMapStore.load(this.context, activeId) : {},
+            ? (await this.buildCoreSelectedMap(this.context, activeId)).selectedMap : {},
           'override-dns': false,
           'test-url': 'https://www.gstatic.com/generate_204'
         }
@@ -165,6 +166,71 @@ export class AppService {
       const msg: string = (e instanceof Error) ? e.message : String(e);
       console.error('AppService', 'loadActiveProfile failed: ' + msg);
       return false;
+    }
+  }
+
+  // P3 重构：解析应用侧状态（持久化模式+选择）→ 核心启动参数（模式 + selected-map）
+  async buildCoreSelectedMap(context: common.UIAbilityContext, activeId: string) {
+    const persistedMode = await SelectedMapStore.loadMode(context);
+    const persistedMap = await SelectedMapStore.load(context, activeId);
+    const view = await ConfigReader.read(context, activeId);
+    return GlobalModeResolver.resolve(persistedMode, persistedMap, view);
+  }
+
+  // P3 重构：模式 patch（Home 模式按钮共用）；无激活订阅/服务未就绪时抛错
+  async patchMode(mode: string): Promise<void> {
+    const svc = this.proxyService;
+    if (!svc) {
+      throw new Error('服务未初始化');
+    }
+    const activeId = await this.getActiveProfileId();
+    if (activeId === '') {
+      throw new Error('请先在订阅页激活一个订阅');
+    }
+    const cfg = new ClashConfig();
+    cfg.mode = mode as ProxyMode;
+    const params: UpdateConfigParams = {
+      'profile-id': activeId,
+      config: cfg,
+      params: {
+        'is-patch': true,
+        'is-compatible': false,
+        'selected-map': {},
+        'override-dns': false,
+        'test-url': 'https://www.gstatic.com/generate_204'
+      }
+    };
+    await svc.loadConfig(params);
+  }
+
+  // P3 重构：在线应用全局端点（DIRECT | 组名 | 节点名）→ 核心即时生效。
+  // 返回 '' 表示成功，否则为错误信息。
+  async applyGlobalEndpoint(endpoint: string, view: YamlConfigView): Promise<string> {
+    const svc = this.proxyService;
+    if (!svc) return '服务未初始化';
+    try {
+      if (endpoint === 'DIRECT') {
+        await this.patchMode(ProxyMode.Direct);
+        return '';
+      }
+      if (view.isGroupName(endpoint)) {
+        const r1 = await svc.changeProxy('GLOBAL', endpoint);
+        if (r1 !== '') return r1;
+        await this.patchMode(ProxyMode.Global);
+        return '';
+      }
+      const group = view.findGroupContaining(endpoint);
+      if (group !== '') {
+        const r1 = await svc.changeProxy(group, endpoint);
+        if (r1 !== '') return r1;
+        const r2 = await svc.changeProxy('GLOBAL', group);
+        if (r2 !== '') return r2;
+        await this.patchMode(ProxyMode.Global);
+        return '';
+      }
+      return '端点不存在于当前订阅';
+    } catch (e) {
+      return String(e);
     }
   }
 

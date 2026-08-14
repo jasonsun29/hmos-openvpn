@@ -9,10 +9,16 @@
  *   P0-2 error toast 限频（1s 最多 1 次，同消息合并计数）
  *   P1-6 testing 用 generation 计数器防连点竞态
  *   P0-3 URLTest 超时 1500ms → 3000ms（HTTPS+TLS 握手需要）
+ *   P3-16 并发 6 → 16（真机大订阅全量测速 11min → 3.5min）
+ * P3 重构（选端点不依赖 VPN + 全局模式与订阅结构解耦）：
+ *   - 离线也能浏览/选择：代理组/节点树直接解析本地 config.yaml
+ *   - VPN 在线时叠加 RPC 数据（now/延迟），选择即时生效
+ *   - 全局模式端点 = 平铺的 直连 + 全部组 + 全部节点（单组展示）
  */
 import { ThemeColors } from '../model/Theme';
 import { AppService } from '../service/AppService';
-import { ProxyGroup, ProxyMode, Proxy, SocketProxyService, SelectedMapStore } from 'proxy_core';
+import { ProxyGroup, ProxyMode, Proxy, ProxyType, SocketProxyService, SelectedMapStore,
+  ConfigReader, YamlConfigView } from 'proxy_core';
 import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 
@@ -22,84 +28,200 @@ export struct ProxiesPage {
   @State groups: Array<ProxyGroup> = [];
   @State expanded: Record<string, boolean> = {};
   @State testing: boolean = false;
+  // P3 重构：核心 RPC 是否可达（VPN 在线）；离线时仍可浏览/选择
+  @State online: boolean = false;
+  @StorageLink('vpnOn') vpnOn: boolean = false;
   // P1-6 generation 计数器：每次新测试 +1，中途检查避免竞态
   private testToken: number = 0;
   private appService: AppService = AppService.getInstance();
+  private offlineView: YamlConfigView = new YamlConfigView();
+  private isGlobalMode: boolean = false;
+  // 持久化选择缓存（loadGroups 时从跨进程文件加载）
+  private persistedMap: Record<string, string> = {};
 
   aboutToAppear(): void {
     this.loadGroups();
   }
 
+  onPageShow(): void {
+    // 从其他页切回时刷新（VPN 状态/模式可能已变化）
+    this.loadGroups();
+  }
+
+  // P3 重构：双源加载
+  //   1) 始终解析本地 config.yaml（离线可用）
+  //   2) VPN 在线时叠加 RPC 数据（now/延迟），失败回退离线视图
   async loadGroups(): Promise<void> {
+    const context = getContext(this) as common.UIAbilityContext;
+    const activeId = await this.appService.getActiveProfileId();
+    if (activeId !== '') {
+      this.offlineView = await ConfigReader.read(context, activeId);
+      this.persistedMap = await SelectedMapStore.load(context, activeId);
+    }
+    const rawMode: string = AppStorage.get<string>('vpnMode') ?? 'global';
+    this.isGlobalMode = rawMode.toUpperCase() === ProxyMode.Global;
+
     const svc: SocketProxyService | undefined = this.appService.getProxyService();
-    if (!svc) return;
+    if (!svc || !this.vpnOn) {
+      this.online = false;
+      this.groups = this.buildOfflineGroups();
+      return;
+    }
     try {
-      // P3 模式感知：全局模式下查询并展示 GLOBAL 组（含其全部成员），
-      // 规则模式下维持原规则组树。模式来自 Home 写入的 AppStorage 'vpnMode'。
-      // 注意：vpnMode 存的是按钮值（小写 global/rule/direct），
-      // queryProxyGroups/ParseProxyGroup 要求 ProxyMode 枚举（大写）→ 归一化
-      const rawMode: string = AppStorage.get<string>('vpnMode') ?? '';
-      const mode: ProxyMode = rawMode.toUpperCase() === ProxyMode.Global ? ProxyMode.Global : ProxyMode.Rule;
-      const list = await svc.queryProxyGroups(mode);
-      this.groups = list;
-      // P1-9 移除循环诊断日志：reload 时打 N 条没价值，仅 catch 时打 error
+      const list = await svc.queryProxyGroups(this.isGlobalMode ? ProxyMode.Global : ProxyMode.Rule);
+      this.online = true;
+      if (this.isGlobalMode) {
+        this.groups = this.buildGlobalEndpointList(list);
+      } else {
+        this.groups = list;
+      }
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
-      console.error('Proxies', 'loadGroups failed: ' + msg);
-      // VPN 未启动时提示
-      if (this.groups.length === 0) {
-        promptAction.showToast({ message: '请先开启 VPN 再查看代理' });
-      }
+      console.warn('Proxies', 'RPC 不可用，回退离线视图: ' + msg);
+      this.online = false;
+      this.groups = this.buildOfflineGroups();
     }
   }
 
-  // T4.3 切换节点
+  // 离线视图：无延迟/无 now（用持久化选择做 ✓ 标记）
+  private buildOfflineGroups(): Array<ProxyGroup> {
+    if (this.isGlobalMode) {
+      return this.buildGlobalEndpointList([]);
+    }
+    const result: Array<ProxyGroup> = [];
+    for (const g of this.offlineView.groups) {
+      const proxies: Array<Proxy> = g.proxies.map((n: string) => {
+        const node = this.offlineView.nodes.find((x) => x.name === n);
+        const p: Proxy = { name: n, type: (node !== undefined ? node.type : '') as ProxyType };
+        return p;
+      });
+      const pg: ProxyGroup = {
+        name: g.name,
+        type: g.type as ProxyType,
+        now: this.persistedSelection(g.name),
+        proxies: proxies
+      };
+      result.push(pg);
+    }
+    return result;
+  }
+
+  // 全局模式端点列表：单组 'GLOBAL'，成员 = 直连 + 全部组 + 全部节点
+  // （与订阅分组结构无关）；rpcGroups 用于补延迟
+  private buildGlobalEndpointList(rpcGroups: Array<ProxyGroup>): Array<ProxyGroup> {
+    const members: Array<Proxy> = [];
+    const seen: Array<string> = [];
+    const push = (name: string, type: string, latency: number | undefined): void => {
+      if (name === '' || name === 'GLOBAL' || seen.includes(name)) {
+        return;
+      }
+      seen.push(name);
+      const p: Proxy = { name: name, type: type as ProxyType, latency: latency };
+      members.push(p);
+    };
+    // 直连（全局模式下"所有流量不走代理"的唯一正确选择）
+    push('DIRECT', 'Direct', undefined);
+    // 组（含延迟：从 RPC 组列表中按组名匹配 now 节点延迟）
+    for (const g of this.offlineView.groups) {
+      const rpcGroup = rpcGroups.find((x: ProxyGroup) => x.name === g.name);
+      push(g.name, g.type, rpcGroup !== undefined ? this.nowDelay(rpcGroup) : undefined);
+    }
+    // 节点（延迟从 RPC 各组成员的延迟表匹配）
+    const latencyMap = new Map<string, number>();
+    for (const g of rpcGroups) {
+      for (const p of g.proxies) {
+        if (p.latency !== undefined && p.latency !== 0) {
+          latencyMap.set(p.name, p.latency);
+        }
+      }
+    }
+    for (const n of this.offlineView.nodes) {
+      push(n.name, n.type, latencyMap.get(n.name));
+    }
+    const endpoint = this.persistedSelection('GLOBAL');
+    const globalGroup: ProxyGroup = {
+      name: 'GLOBAL',
+      type: ProxyType.Selector,
+      now: endpoint,
+      proxies: members
+    };
+    return [globalGroup];
+  }
+
+  // 持久化的选择（全局端点或组内节点）
+  private persistedSelection(key: string): string {
+    return this.persistedMap[key] ?? '';
+  }
+
+  // T4.3 切换节点 / 全局端点
   async changeNode(group: ProxyGroup, proxyName: string): Promise<void> {
     console.log('Proxies', 'changeNode click: ' + group.name + ' -> ' + proxyName);
-    const svc: SocketProxyService | undefined = this.appService.getProxyService();
-    if (!svc) return;
-    try {
-      await svc.changeProxy(group.name, proxyName);
-      console.log('Proxies', 'changeProxy OK: ' + group.name + ' -> ' + proxyName);
-      // P3 持久化：写入跨进程共享文件（VPN 重启后 selected-map 恢复），
-      // 下次打开保持上次选择
-      const context = getContext(this) as common.UIAbilityContext;
-      const activeId = await this.appService.getActiveProfileId();
-      if (activeId !== '') {
-        await SelectedMapStore.record(context, activeId, group.name, proxyName);
-      }
-      promptAction.showToast({ message: '已切换到: ' + proxyName });
-      // P1-7 广播代理变更事件，Home 页 currentProxy 通过 @StorageLink @Watch 自动刷新
-      AppStorage.setOrCreate<number>('proxyChangedAt', Date.now());
-      AppStorage.setOrCreate<string>('currentProxyName', proxyName);
-      // 强制重建列表（清空再加载，触发 ForEach 全量重建，避免 key 变更不渲染的坑）
-      this.groups = [];
-      this.loadGroups();
-    } catch (e) {
-      const msg: string = (e instanceof Error) ? e.message : String(e);
-      console.error('Proxies', 'changeProxy failed: ' + msg);
-      promptAction.showToast({ message: '切换失败: ' + msg });
+    const context = getContext(this) as common.UIAbilityContext;
+    const activeId = await this.appService.getActiveProfileId();
+    if (activeId === '') {
+      promptAction.showToast({ message: '请先在订阅页激活一个订阅' });
+      return;
     }
+    // 持久化（无论在线离线，先记录）
+    if (group.name === 'GLOBAL') {
+      await SelectedMapStore.record(context, activeId, 'GLOBAL', proxyName);
+      this.persistedMap['GLOBAL'] = proxyName;
+    } else {
+      await SelectedMapStore.record(context, activeId, group.name, proxyName);
+      this.persistedMap[group.name] = proxyName;
+    }
+    // 在线生效
+    if (this.vpnOn) {
+      try {
+        if (group.name === 'GLOBAL') {
+          // 全局端点：DIRECT/组/节点 统一映射
+          const err = await this.appService.applyGlobalEndpoint(proxyName, this.offlineView);
+          if (err !== '') {
+            promptAction.showToast({ message: '切换失败: ' + err });
+          } else {
+            promptAction.showToast({ message: '已切换: ' + proxyName });
+          }
+        } else {
+          const svc: SocketProxyService | undefined = this.appService.getProxyService();
+          if (svc) {
+            const r = await svc.changeProxy(group.name, proxyName);
+            if (r !== '') {
+              promptAction.showToast({ message: '切换失败: ' + r });
+            } else {
+              promptAction.showToast({ message: '已切换: ' + proxyName });
+            }
+          }
+        }
+      } catch (e) {
+        const msg: string = (e instanceof Error) ? e.message : String(e);
+        promptAction.showToast({ message: '切换失败: ' + msg });
+      }
+    } else {
+      promptAction.showToast({ message: '已记录，开启 VPN 后生效' });
+    }
+    // P1-7 广播代理变更事件，Home 页 currentProxy 通过 @StorageLink @Watch 自动刷新
+    AppStorage.setOrCreate<number>('proxyChangedAt', Date.now());
+    AppStorage.setOrCreate<string>('currentProxyName', proxyName);
+    // 强制重建列表（清空再加载，触发 ForEach 全量重建，避免 key 变更不渲染的坑）
+    this.groups = [];
+    this.loadGroups();
   }
 
   // T4.2 测速（并发分批：超时 3000ms，避免 100+ 节点串行卡死）
-  // P3 真机调优：并发 6 → 16。死节点每次固定吃掉 3s URLTest 超时，
-  // 大订阅（桔子云 ~1000 节点）下 6 并发全量测速需 11+ 分钟，
-  // 16 并发可压缩到 ~4 分钟；Go 核心健康检查为无状态并发，16 路无压力。
+  // P3 真机调优：并发 16；DIRECT/REJECT 等特殊成员跳过
   async testGroup(group: ProxyGroup, token: number): Promise<void> {
     const svc: SocketProxyService | undefined = this.appService.getProxyService();
     if (!svc) return;
     try {
-      const names = group.proxies.map((p: Proxy) => p.name);
+      const names = group.proxies.map((p: Proxy) => p.name)
+        .filter((n: string) => n !== 'DIRECT' && n !== 'REJECT');
       const CONCURRENCY = 16;
       for (let i = 0; i < names.length; i += CONCURRENCY) {
-        // 中途若 generation 变更（连点 / 新一轮），立即退出
         if (this.testToken !== token) return;
         const batch = names.slice(i, i + CONCURRENCY);
         await Promise.all(batch.map(async (name: string) => {
           try {
             const delay = await svc.healthCheckWithTimeout(name, 3000);
-            // generation 又变了就别回填
             if (this.testToken !== token) return;
             const p = group.proxies.find((x: Proxy) => x.name === name);
             if (p) {
@@ -152,7 +274,21 @@ export struct ProxiesPage {
           .onClick(() => this.loadGroups())
       }
       .width('92%')
-      .margin({ bottom: 8 })
+      .margin({ bottom: 4 })
+
+      // P3 重构：模式/在线状态提示
+      Text(this.isGlobalMode ? '全局模式 · 全部流量走所选端点' : '规则模式 · 按订阅规则分流')
+        .fontSize(11)
+        .fontColor(this.colors.textSecondary)
+        .width('92%')
+        .margin({ bottom: 4 })
+      if (!this.online) {
+        Text('VPN 离线 · 可浏览选择，开启 VPN 后生效')
+          .fontSize(11)
+          .fontColor('#FF9500')
+          .width('92%')
+          .margin({ bottom: 4 })
+      }
 
       // 代理组树
       List({ space: 8 }) {
@@ -181,6 +317,10 @@ export struct ProxiesPage {
                   .height(28)
                   .backgroundColor(this.testing ? '#8A8A8A' : this.colors.primary)
                   .onClick(() => {
+                    if (!this.online) {
+                      promptAction.showToast({ message: '测速需开启 VPN' });
+                      return;
+                    }
                     console.log('Proxies', 'testGroup click: ' + group.name);
                     this.testing = true;
                     const token = ++this.testToken;
@@ -253,6 +393,10 @@ export struct ProxiesPage {
 
   // 全部组测速（generation 计数器防连点竞态：每次进入 +1，中途检查）
   async testAll(): Promise<void> {
+    if (!this.online) {
+      promptAction.showToast({ message: '测速需开启 VPN' });
+      return;
+    }
     if (this.testing) {
       // testing 卡死自愈：超过 30 秒强制重置（连点 / 异常中断）
       console.log('Proxies', 'testAll: testing=true, 强制重置');
@@ -274,7 +418,6 @@ export struct ProxiesPage {
       }
       console.log('Proxies', 'testAll done, generation=' + myToken);
     } finally {
-      // 只有当前 generation 才清 testing，避免新测试被错误清掉
       if (this.testToken === myToken) {
         this.testing = false;
       }

@@ -15,8 +15,7 @@ import { http } from '@kit.NetworkKit';
 import { ThemeColors } from '../model/Theme';
 import { AppService } from '../service/AppService';
 import { BackgroundKeepAliveService } from '../service/BackgroundKeepAliveService';
-import { SocketProxyService, UpdateConfigParams, ClashConfig, ProxyMode,
-  ProxyGroup, Traffic, SelectedMapStore } from 'proxy_core';
+import { SocketProxyService, ProxyMode, ProxyGroup, Traffic, SelectedMapStore, ConfigReader } from 'proxy_core';
 import { promptAction } from '@kit.ArkUI';
 // P3-5 统一异步错误处理
 import { tryRunAsync } from '../utils/AsyncUtils';
@@ -49,7 +48,8 @@ export struct HomePage {
       console.log('Home', 'currentProxy updated via StorageLink: ' + this.currentProxyName);
     }
   }
-  @State mode: string = ProxyMode.Rule;
+  // P3 重构：默认全局模式（按钮值小写 global/rule/direct）
+  @State mode: string = 'global';
   @State currentProxy: string = '--';
   @State ipInfo: string = '';
   @State downRate: number = 0;
@@ -149,63 +149,61 @@ export struct HomePage {
   }
 
   // T5.2 模式切换（patch 下发）
-  // P3 全局模式语义：GLOBAL 模式 = 全部流量走 GLOBAL 组选中的节点；
-  // 首次切全局时把当前规则模式选中节点继承给 GLOBAL（避免落 DIRECT 直连）；
-  // 模式与选择均持久化（SelectedMapStore），下次打开保持上次状态。
+  // P3 重构：模式切换。模式是应用自己的状态（持久化），与订阅结构无关。
+  // VPN 在线时立即下发生效；离线时保存，开启 VPN 后由启动路径应用。
   async setMode(mode: string): Promise<void> {
     console.log('Home', 'setMode click: ' + mode);
-    const svc: SocketProxyService | undefined = this.appService.getProxyService();
-    if (!svc) return;
     try {
+      const context = getContext(this) as common.UIAbilityContext;
       const activeId = await this.appService.getActiveProfileId();
       if (activeId === '') {
         promptAction.showToast({ message: '请先在订阅页激活一个订阅' });
         return;
       }
-      const context = getContext(this) as common.UIAbilityContext;
-      // 按钮传小写（global/rule/direct），ProxyMode 枚举为大写 → 统一大写比较
-      if (mode.toUpperCase() === ProxyMode.Global) {
-        const selected = await SelectedMapStore.load(context, activeId);
-        if (!selected['GLOBAL']) {
-          // 从未给 GLOBAL 选过节点：继承当前规则模式的主组选中节点
-          const groups = await svc.queryProxyGroups(ProxyMode.Rule);
-          const main = groups.length > 0 ? groups[0] : undefined;
-          if (main && main.now !== '' && main.now !== 'DIRECT') {
-            await svc.changeProxy('GLOBAL', main.now);
-            await SelectedMapStore.record(context, activeId, 'GLOBAL', main.now);
-            console.log('Home', '首次切全局：GLOBAL 继承当前节点 ' + main.now);
-          }
-        }
-      }
-      const cfg = new ClashConfig();
-      cfg.mode = mode as ProxyMode;
-      const params: UpdateConfigParams = {
-        'profile-id': activeId,
-        config: cfg,
-        params: {
-          'is-patch': true,
-          'is-compatible': false,
-          'selected-map': await SelectedMapStore.load(context, activeId),
-          'override-dns': false,
-          // P0-5 统一 HTTPS（与 ClashVpnAbility 的 test-url 一致）
-          'test-url': 'https://www.gstatic.com/generate_204'
-        }
-      };
-      await svc.loadConfig(params);
-      this.mode = mode;
       await SelectedMapStore.saveMode(context, mode);
+      this.mode = mode;
       AppStorage.setOrCreate('vpnMode', mode);
+      if (!this.vpnOn) {
+        promptAction.showToast({ message: '已保存，开启 VPN 后生效' });
+        return;
+      }
+      if (mode.toUpperCase() === ProxyMode.Global) {
+        // 全局模式：应用持久化的全局端点（DIRECT/组/节点），未选则核心默认
+        const view = await ConfigReader.read(context, activeId);
+        const endpoint = (await SelectedMapStore.load(context, activeId))['GLOBAL'] ?? '';
+        const err = await this.appService.applyGlobalEndpoint(endpoint, view);
+        if (err !== '') {
+          promptAction.showToast({ message: '切换失败: ' + err });
+        } else {
+          promptAction.showToast({ message: '已切换为全局模式' });
+        }
+      } else if (mode.toUpperCase() === ProxyMode.Direct) {
+        await this.appService.patchMode(ProxyMode.Direct);
+      } else {
+        await this.appService.patchMode(ProxyMode.Rule);
+      }
+      this.refreshCurrentProxy();
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
       promptAction.showToast({ message: '模式切换失败: ' + msg });
     }
   }
 
-  // T5.4 当前代理
+  // T5.4 当前代理：全局模式下优先显示持久化端点（离线也能看），
+  // 未选择时查询核心 GLOBAL 组当前值
   async refreshCurrentProxy(): Promise<void> {
     const svc: SocketProxyService | undefined = this.appService.getProxyService();
     if (!svc) return;
     await tryRunAsync('Home.refreshCurrentProxy', async (): Promise<void> => {
+      const context = getContext(this) as common.UIAbilityContext;
+      const activeId = await this.appService.getActiveProfileId();
+      if (activeId !== '') {
+        const endpoint = (await SelectedMapStore.load(context, activeId))['GLOBAL'] ?? '';
+        if (endpoint !== '') {
+          this.currentProxy = endpoint;
+          return;
+        }
+      }
       const groups = await svc.queryProxyGroups(ProxyMode.Global);
       const g = groups.find((x: ProxyGroup) => x.name === 'GLOBAL');
       if (g) {
@@ -215,8 +213,6 @@ export struct HomePage {
   }
 
   async refreshMode(): Promise<void> {
-    const svc: SocketProxyService | undefined = this.appService.getProxyService();
-    if (!svc) return;
     await tryRunAsync('Home.refreshMode', async (): Promise<void> => {
       // P3 持久化模式优先（上次选什么模式，重启后还是什么模式）
       const context = getContext(this) as common.UIAbilityContext;
@@ -231,12 +227,9 @@ export struct HomePage {
           return;
         }
       }
-      // 无持久化记录（首次）：从代理组推断（Rule 组存在=Rule 模式）
-      const groups = await svc.queryProxyGroups(ProxyMode.Rule);
-      if (groups.length > 0) {
-        this.mode = ProxyMode.Rule;
-        AppStorage.setOrCreate('vpnMode', ProxyMode.Rule);
-      }
+      // P3 重构：无持久化记录（首次）→ 默认全局模式
+      this.mode = 'global';
+      AppStorage.setOrCreate('vpnMode', 'global');
     });
   }
 

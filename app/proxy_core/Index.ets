@@ -10,5 +10,5 @@ export { ClashConfig,Sniffer,SnifferDefault,Sniff,TunnelState, Dns,TunStack, Rou
 export { getHome } from "./src/main/ets/appPath"
 export { ActivationStore } from './src/main/ets/ActivationStore'
 export { SelectedMapStore } from './src/main/ets/SelectedMapStore'
-export { patchGlobalGroupInYaml } from './src/main/ets/YamlGlobalPatch'
+export { ConfigReader, GlobalModeResolver, YamlConfigView, OfflineGroup, OfflineProxy, ResolvedModeConfig } from './src/main/ets/ConfigReader'
 export { readFile, readText, writeFile, fileExists, readFileUri } from './src/main/ets/fileUtils'

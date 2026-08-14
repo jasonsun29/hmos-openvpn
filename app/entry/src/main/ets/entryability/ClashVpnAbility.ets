@@ -5,7 +5,7 @@
  */
 import { VpnExtensionAbility, socket } from '@kit.NetworkKit';
 import { Want } from '@kit.AbilityKit';
-import { SocketStubService, UpdateConfigParams, ClashConfig, ClashRpcType, ActivationStore, DnsEnhancedMode, TunStack, SelectedMapStore, ProxyMode } from 'proxy_core';
+import { SocketStubService, UpdateConfigParams, ClashConfig, ClashRpcType, ActivationStore, DnsEnhancedMode, TunStack, SelectedMapStore, ConfigReader, GlobalModeResolver, ProxyMode } from 'proxy_core';
 import { updateConfig } from 'libflclash.so';
 import { fileIo } from '@kit.CoreFileKit';
 import { preferences } from '@kit.ArkData';
@@ -94,13 +94,15 @@ export default class ClashVpnAbility extends VpnExtensionAbility {
       } catch (e) {
         console.error('VpnAbility', '读 pendingL3Patch 失败: ' + String(e));
       }
-      // P3 持久化恢复：上次选择的模式 + 各组的节点选择（跨进程共享文件）
+      // P3 重构：模式 + 全局端点映射统一由解析器决定（默认全局模式），
+      // 订阅结构无关；上次选择跨重启保留
       const persistedMode = await SelectedMapStore.loadMode(this.context);
-      if (persistedMode !== '' && cfg.mode) {
-        cfg.mode = persistedMode as ProxyMode;
-        console.log('VpnAbility', '恢复持久化模式: ' + persistedMode);
-      }
-      const selectedMap = await SelectedMapStore.load(this.context, activeId);
+      const persistedMap = await SelectedMapStore.load(this.context, activeId);
+      const view = await ConfigReader.read(this.context, activeId);
+      const resolved = GlobalModeResolver.resolve(persistedMode, persistedMap, view);
+      cfg.mode = resolved.mode as ProxyMode;
+      const selectedMap = resolved.selectedMap;
+      console.log('VpnAbility', '模式=' + resolved.mode + ' 端点=' + (persistedMap['GLOBAL'] ?? ''));
       const params: UpdateConfigParams = {
         'profile-id': activeId,
         'config': cfg,

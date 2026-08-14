@@ -125,7 +125,8 @@ export class  ClashConfig {
   authentication?: string[];
   "allow-lan": boolean = true;
   "bind-address"?: string;
-  mode?: ProxyMode = ProxyMode.Rule;
+  // P3 重构：默认全局模式（应用侧默认；VPN 启动/模式切换均显式下发）
+  mode?: ProxyMode = ProxyMode.Global;
   "log-level"?: LogLevel = LogLevel.Info;
   ipv6: boolean = false;
   "external-controller"?: string;

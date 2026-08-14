@@ -87,6 +87,15 @@
   - **存疑部分（明日重做方向）**：YamlGlobalPatch——无 Go 重编译约束下，在 Go 格式 yaml 同步时给 GLOBAL 组补全成员（DIRECT/REJECT+组名+节点名）。已发现并修复两个大坑：①TextEncoder 池化 ArrayBuffer 尾部陈旧字节被写盘（53 行平移副本+坏规则 MATCH,桔子云.in-addr.arpa，核心报 rules[5383] error——已修 fileUtils.writeFile 及全部写盘点，按视图 byteLength 截断+TRUNC）②插入块缩进风格与原文件混排导致 yaml 非法（mihomo 宽容解析吞掉成员）——已重写为缩进自适应+独立 dash 风格，**最新版尚未真机验证**
   - 设备当前状态：device yaml 为缩进混排版本（mihomo 宽容解析通过、核心可跑）；明日应从干净 config.yaml 重新同步验证
   - 明日待办：①评估 yaml 补丁方案或换路线（重编译 Go / 接受机场现状等）②干净 config.yaml 重同步 + 验证 GLOBAL 成员 ③继续第四批（t33/t43/t44）
+- **P3 重构（2026-08-15，按用户三点要求重做，替代 yaml 补丁方案）**：
+  - 用户需求：①选端点不能依赖 VPN 在线 ②默认全局模式 ③全局端点与订阅结构无关（直连=不走代理、其他=全走所选端点）
+  - 新架构（YamlGlobalPatch 已删除）：
+    - `ConfigReader`（proxy_core）：离线解析本地 config.yaml → 组/节点视图（选端点不再依赖 VPN）
+    - `GlobalModeResolver`：应用侧状态（持久化模式+选择）→ 核心参数映射——DIRECT→mode=Direct；组→mode=Global+GLOBAL→组；节点→mode=Global+GLOBAL→所在组+组→节点；未选/失效→Global 默认；rule→Rule（组内选择保留）
+    - `AppService.applyGlobalEndpoint/patchMode`：在线即时应用（changeProxy 用真实组名，绕开核心 Set 校验）
+    - Proxies 页双源：离线可浏览/选择（"已记录，开启 VPN 后生效"+在线状态横幅），在线叠加 RPC 延迟；全局模式=单组平铺端点列表（直连+全部组+全部节点）
+    - Home：默认全局、模式持久化、当前代理优先显示持久化端点；VPN 启动（ClashVpnAbility）用解析器恢复模式+selected-map；ClashConfig.mode 默认 Global
+  - 验证状态：构建通过、30/30 单测（ConfigReader+Resolver 6 个新用例）、CodeLinter 0 error；**真机验证待设备连接**（清单：VPN 关闭时 Proxies 离线可看可选 → 选端点 → 开 VPN → 核心 using GLOBAL+映射生效 → 重启 VPN 状态保留）
 
 - **P3 第三批完成（2026-08-14，构建+lint+真机验证）**：
   - t38 updateDns：**弃用**。查清契约（Go 读 args[0] 为逗号分隔字符串、OHOS 侧只改核心自身 systemResolver 不触碰系统 DNS、TUN 重建窗口有全断网风险、fake-ip 已工作正常），在 libflclash/Index.d.ts 补声明+完整决策记录（接入点留档）
