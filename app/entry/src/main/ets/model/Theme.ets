@@ -58,7 +58,7 @@ export class ThemeDimen {
   static readonly RadiusCard = 18;   // 大卡片圆角
   static readonly RadiusRow = 16;    // 行卡片圆角
   static readonly RadiusItem = 12;   // 内部元素
-  static readonly PagePad = 16;      // 页面边距
+  static readonly PagePad = 28;      // 页面边距（卡片左右留白）
   static readonly CardPad = 12;      // 卡片内 padding
   static readonly GapS = 8;          // 间距：小
   static readonly GapM = 10;         // 间距：中

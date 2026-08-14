@@ -29,7 +29,7 @@ export class GeoDataInstaller {
         const dst = home + '/' + f;
         const data: Uint8Array | null = await readFile(src);
         if (data) {
-          await writeFile(dst, data);
+          writeFile(dst, data);
         }
       }
       console.log('GeoData', 'GeoX 数据就绪: ' + home);

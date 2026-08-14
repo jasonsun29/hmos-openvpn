@@ -7,7 +7,6 @@
 import { ThemeColors, ThemeDimen } from '../model/Theme';
 import { AppService } from '../service/AppService';
 import { SocketProxyService, ConnectionInfo } from 'proxy_core';
-import { promptAction } from '@kit.ArkUI';
 
 @Component
 export struct ConnectionsPage {
@@ -92,7 +91,7 @@ export struct ConnectionsPage {
       svc.closeConnection(id);
       this.refresh();
     } catch (e) {
-      promptAction.showToast({ message: '断开失败' });
+      this.getUIContext().getPromptAction().showToast({ message: '断开失败' });
     }
   }
 
@@ -103,7 +102,7 @@ export struct ConnectionsPage {
       svc.clearConnections();
       this.refresh();
     } catch (e) {
-      promptAction.showToast({ message: '清空失败' });
+      this.getUIContext().getPromptAction().showToast({ message: '清空失败' });
     }
   }
 

@@ -18,7 +18,6 @@ import { AppIcon, AppIconName } from '../components/AppIcon';
 import { AppService } from '../service/AppService';
 import { BackgroundKeepAliveService } from '../service/BackgroundKeepAliveService';
 import { SocketProxyService, ProxyMode, ProxyGroup, Traffic, SelectedMapStore, ConfigReader } from 'proxy_core';
-import { promptAction } from '@kit.ArkUI';
 // P3-5 统一异步错误处理
 import { tryRunAsync } from '../utils/AsyncUtils';
 
@@ -56,7 +55,7 @@ export struct HomePage {
       this.vpnState = 'vpn_disconnected';
       this.stopTrafficPoll();
       // 真机回归补充：同步落盘 vpnOn，避免服务卡片继续显示“已连接”
-      const context = getContext(this) as common.UIAbilityContext;
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       SelectedMapStore.saveVpnOn(context, false);
     }
   }
@@ -128,7 +127,7 @@ export struct HomePage {
 
   async toggleVpn(isOn: boolean): Promise<void> {
     try {
-      const context = getContext(this) as common.UIAbilityContext;
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const vpnWant: Want = {
         deviceId: '',
         bundleName: context.abilityInfo.bundleName,
@@ -166,11 +165,11 @@ export struct HomePage {
       this.vpnOn = !isOn; // 回滚
       // P1-10 识别授权失败场景，提示用户具体原因
       if (/cancel|denied|拒绝|取消/i.test(msg)) {
-        promptAction.showToast({ message: 'VPN 授权已取消' });
+        this.getUIContext().getPromptAction().showToast({ message: 'VPN 授权已取消' });
       } else if (/policy|forbidden|不允许|90024|95100002/i.test(msg)) {
-        promptAction.showToast({ message: '系统策略不允许启动 VPN（检查权限设置）' });
+        this.getUIContext().getPromptAction().showToast({ message: '系统策略不允许启动 VPN（检查权限设置）' });
       } else {
-        promptAction.showToast({ message: 'VPN 启动失败: ' + msg });
+        this.getUIContext().getPromptAction().showToast({ message: 'VPN 启动失败: ' + msg });
       }
       console.error('Home', 'toggleVpn failed: ' + msg);
     }
@@ -182,17 +181,17 @@ export struct HomePage {
   async setMode(mode: string): Promise<void> {
     console.log('Home', 'setMode click: ' + mode);
     try {
-      const context = getContext(this) as common.UIAbilityContext;
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const activeId = await this.appService.getActiveProfileId();
       if (activeId === '') {
-        promptAction.showToast({ message: '请先在订阅页激活一个订阅' });
+        this.getUIContext().getPromptAction().showToast({ message: '请先在订阅页激活一个订阅' });
         return;
       }
       await SelectedMapStore.saveMode(context, mode);
       this.mode = mode;
       AppStorage.setOrCreate('vpnMode', mode);
       if (!this.vpnOn) {
-        promptAction.showToast({ message: '已保存，开启 VPN 后生效' });
+        this.getUIContext().getPromptAction().showToast({ message: '已保存，开启 VPN 后生效' });
         return;
       }
       if (mode.toUpperCase() === ProxyMode.Global) {
@@ -201,9 +200,9 @@ export struct HomePage {
         const endpoint = (await SelectedMapStore.load(context, activeId))['GLOBAL'] ?? '';
         const err = await this.appService.applyGlobalEndpoint(endpoint, view);
         if (err !== '') {
-          promptAction.showToast({ message: '切换失败: ' + err });
+          this.getUIContext().getPromptAction().showToast({ message: '切换失败: ' + err });
         } else {
-          promptAction.showToast({ message: '已切换为全局模式' });
+          this.getUIContext().getPromptAction().showToast({ message: '已切换为全局模式' });
         }
       } else if (mode.toUpperCase() === ProxyMode.Direct) {
         await this.appService.patchMode(ProxyMode.Direct);
@@ -213,7 +212,7 @@ export struct HomePage {
       this.refreshCurrentProxy();
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
-      promptAction.showToast({ message: '模式切换失败: ' + msg });
+      this.getUIContext().getPromptAction().showToast({ message: '模式切换失败: ' + msg });
     }
   }
 
@@ -223,7 +222,7 @@ export struct HomePage {
     const svc: SocketProxyService | undefined = this.appService.getProxyService();
     if (!svc) return;
     await tryRunAsync('Home.refreshCurrentProxy', async (): Promise<void> => {
-      const context = getContext(this) as common.UIAbilityContext;
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const activeId = await this.appService.getActiveProfileId();
       if (activeId !== '') {
         const endpoint = (await SelectedMapStore.load(context, activeId))['GLOBAL'] ?? '';
@@ -243,7 +242,7 @@ export struct HomePage {
   async refreshMode(): Promise<void> {
     await tryRunAsync('Home.refreshMode', async (): Promise<void> => {
       // P3 持久化模式优先（上次选什么模式，重启后还是什么模式）
-      const context = getContext(this) as common.UIAbilityContext;
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const persisted = await SelectedMapStore.loadMode(context);
       if (persisted !== '') {
         // 统一大写比较（按钮值是小写 global/rule/direct）
@@ -450,7 +449,7 @@ export struct HomePage {
           .padding({ left: 24, top: 20, bottom: 4 })
 
         // UI 2.0 Hero 状态卡（紧凑两行：状态点+状态 与 当前代理）
-        GlassCard({ radius: ThemeDimen.RadiusCard, marginH: ThemeDimen.PagePad }) {
+        GlassCard({ radius: ThemeDimen.RadiusCard, marginH: 0 }) {
           Column({ space: 8 }) {
             Row() {
               Row({ space: 8 }) {
@@ -511,7 +510,7 @@ export struct HomePage {
         .backgroundBlurStyle(BlurStyle.Thin)
 
         // UI 2.0 流量玻璃卡（1Hz 差分速率 + 实时波形）
-        GlassCard({ marginH: ThemeDimen.PagePad }) {
+        GlassCard({ marginH: 0 }) {
           Column({ space: 8 }) {
             Row() {
               Text($r('app.string.traffic'))
@@ -552,7 +551,7 @@ export struct HomePage {
         }
 
         // UI 2.0 工具行 1：当前代理（点击刷新）
-        GlassCard({ radius: ThemeDimen.RadiusRow, marginH: ThemeDimen.PagePad, pressable: true, action: () => this.refreshCurrentProxy() }) {
+        GlassCard({ radius: ThemeDimen.RadiusRow, marginH: 0, pressable: true, action: () => this.refreshCurrentProxy() }) {
           Row({ space: 8 }) {
             AppIcon({ name: AppIconName.Selector, iconSize: 16, color: this.colors.primary })
             Text($r('app.string.current_proxy'))
@@ -614,7 +613,7 @@ export struct HomePage {
       .width('100%')
       .backgroundColor(this.colors.background)
       .alignItems(HorizontalAlign.Center)
-      .padding({ bottom: 24 })
+      .padding({ left: ThemeDimen.PagePad, right: ThemeDimen.PagePad, bottom: 24 })
     }
     .width('100%')
     .height('100%')

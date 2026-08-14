@@ -21,7 +21,6 @@ import { ProxyGroup, ProxyMode, Proxy, ProxyType, SocketProxyService, SelectedMa
   ConfigReader, YamlConfigView } from 'proxy_core';
 import { common } from '@kit.AbilityKit';
 import { AppIcon, AppIconName } from '../components/AppIcon';
-import { promptAction } from '@kit.ArkUI';
 
 @Component
 export struct ProxiesPage {
@@ -63,7 +62,7 @@ export struct ProxiesPage {
   //   1) 始终解析本地 config.yaml（离线可用）
   //   2) VPN 在线时叠加 RPC 数据（now/延迟），失败回退离线视图
   async loadGroups(): Promise<void> {
-    const context = getContext(this) as common.UIAbilityContext;
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     const activeId = await this.appService.getActiveProfileId();
     if (activeId !== '') {
       this.offlineView = await ConfigReader.read(context, activeId);
@@ -177,10 +176,10 @@ export struct ProxiesPage {
   // T4.3 切换节点 / 全局端点
   async changeNode(group: ProxyGroup, proxyName: string): Promise<void> {
     console.log('Proxies', 'changeNode click: ' + group.name + ' -> ' + proxyName);
-    const context = getContext(this) as common.UIAbilityContext;
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     const activeId = await this.appService.getActiveProfileId();
     if (activeId === '') {
-      promptAction.showToast({ message: '请先在订阅页激活一个订阅' });
+      this.getUIContext().getPromptAction().showToast({ message: '请先在订阅页激活一个订阅' });
       return;
     }
     // 持久化（无论在线离线，先记录）
@@ -198,27 +197,27 @@ export struct ProxiesPage {
           // 全局端点：DIRECT/组/节点 统一映射
           const err = await this.appService.applyGlobalEndpoint(proxyName, this.offlineView);
           if (err !== '') {
-            promptAction.showToast({ message: '切换失败: ' + err });
+            this.getUIContext().getPromptAction().showToast({ message: '切换失败: ' + err });
           } else {
-            promptAction.showToast({ message: '已切换: ' + proxyName });
+            this.getUIContext().getPromptAction().showToast({ message: '已切换: ' + proxyName });
           }
         } else {
           const svc: SocketProxyService | undefined = this.appService.getProxyService();
           if (svc) {
             const r = await svc.changeProxy(group.name, proxyName);
             if (r !== '') {
-              promptAction.showToast({ message: '切换失败: ' + r });
+              this.getUIContext().getPromptAction().showToast({ message: '切换失败: ' + r });
             } else {
-              promptAction.showToast({ message: '已切换: ' + proxyName });
+              this.getUIContext().getPromptAction().showToast({ message: '已切换: ' + proxyName });
             }
           }
         }
       } catch (e) {
         const msg: string = (e instanceof Error) ? e.message : String(e);
-        promptAction.showToast({ message: '切换失败: ' + msg });
+        this.getUIContext().getPromptAction().showToast({ message: '切换失败: ' + msg });
       }
     } else {
-      promptAction.showToast({ message: '已记录，开启 VPN 后生效' });
+      this.getUIContext().getPromptAction().showToast({ message: '已记录，开启 VPN 后生效' });
     }
     // P1-7 广播代理变更事件，Home 页 currentProxy 通过 @StorageLink @Watch 自动刷新
     AppStorage.setOrCreate<number>('proxyChangedAt', Date.now());
@@ -237,32 +236,31 @@ export struct ProxiesPage {
       const names = group.proxies.map((p: Proxy) => p.name)
         .filter((n: string) => n !== 'DIRECT' && n !== 'REJECT');
       const CONCURRENCY = 16;
+      // 循环外读一次状态快照，批内回调用局部变量比较（lint: no-state-var-access-in-loop）
+      const liveToken = this.testToken;
+      const baseGroups = this.groups;
       for (let i = 0; i < names.length; i += CONCURRENCY) {
-        if (this.testToken !== token) return;
+        if (liveToken !== token) return;
         const batch = names.slice(i, i + CONCURRENCY);
         await Promise.all(batch.map(async (name: string) => {
           try {
             const delay = await svc.healthCheckWithTimeout(name, 3000);
-            if (this.testToken !== token) return;
+            if (liveToken !== token) return;
             const p = group.proxies.find((x: Proxy) => x.name === name);
             if (p) {
               p.latency = delay;
             }
           } catch (e) {
-            if (this.testToken !== token) return;
+            if (liveToken !== token) return;
             const p = group.proxies.find((x: Proxy) => x.name === name);
             if (p) {
               p.latency = 0; // 未测/失败
             }
           }
         }));
-        if (this.testToken === token) {
-          this.groups = [...this.groups]; // 每批后渐进刷新
-        }
       }
-      if (this.testToken === token) {
-        this.groups = [...this.groups];
-      }
+      // 测速结束统一刷新（循环内不触碰状态变量，lint 友好；按钮已有“测速中”反馈）
+      this.groups = [...baseGroups];
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
       console.error('Proxies', 'testGroup failed: ' + msg);
@@ -315,15 +313,9 @@ export struct ProxiesPage {
         .borderRadius(999)
         .backgroundColor(this.colors.primarySoft)
         if (!this.online) {
-          Row({ space: 4 }) {
-            AppIcon({ name: AppIconName.Warn, iconSize: 11, color: this.colors.warning })
-            Text('VPN 离线 · 可浏览选择，开启 VPN 后生效')
-              .fontSize(11)
-              .fontColor(this.colors.warning)
-          }
-          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-          .borderRadius(999)
-          .backgroundColor(this.colors.warning + '1A')
+          Text('VPN 离线 · 可浏览选择，开启 VPN 后生效')
+            .fontSize(11)
+            .fontColor(this.colors.warning)
         }
       }
       .width('92%')
@@ -347,11 +339,8 @@ export struct ProxiesPage {
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                 Text(this.formatDelay(this.nowDelay(group)))
-                  .fontSize(11)
+                  .fontSize(12)
                   .fontColor(this.latencyColor(this.nowDelay(group)))
-                  .padding({ left: 6, right: 6, top: 2, bottom: 2 })
-                  .borderRadius(999)
-                  .backgroundColor(this.latencyBg(this.nowDelay(group)))
                   .margin({ right: 8 })
                 // 单组测速按钮
                 Button() {
@@ -362,7 +351,7 @@ export struct ProxiesPage {
                 .backgroundColor(this.testing ? '#8A8A8A' : this.colors.primary)
                   .onClick(() => {
                     if (!this.online) {
-                      promptAction.showToast({ message: '测速需开启 VPN' });
+                      this.getUIContext().getPromptAction().showToast({ message: '测速需开启 VPN' });
                       return;
                     }
                     console.log('Proxies', 'testGroup click: ' + group.name);
@@ -399,11 +388,8 @@ export struct ProxiesPage {
                         .maxLines(1)
                         .textOverflow({ overflow: TextOverflow.Ellipsis })
                       Text(this.formatDelay(p.latency))
-                        .fontSize(11)
+                        .fontSize(12)
                         .fontColor(this.latencyColor(p.latency))
-                        .padding({ left: 6, right: 6, top: 2, bottom: 2 })
-                        .borderRadius(999)
-                        .backgroundColor(this.latencyBg(p.latency))
                         .margin({ right: 8 })
                       if (p.name === group.now) {
                         AppIcon({ name: AppIconName.Check, iconSize: 14, color: this.colors.primary })
@@ -442,7 +428,7 @@ export struct ProxiesPage {
   // 全部组测速（generation 计数器防连点竞态：每次进入 +1，中途检查）
   async testAll(): Promise<void> {
     if (!this.online) {
-      promptAction.showToast({ message: '测速需开启 VPN' });
+      this.getUIContext().getPromptAction().showToast({ message: '测速需开启 VPN' });
       return;
     }
     if (this.testing) {

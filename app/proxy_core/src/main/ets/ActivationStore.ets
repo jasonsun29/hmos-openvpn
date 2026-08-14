@@ -91,7 +91,7 @@ export class ActivationStore {
       if (await fileExists(srcPath)) {
         const data: Uint8Array | null = await readFile(srcPath);
         if (data) {
-          await writeFile(dstPath, data);
+          writeFile(dstPath, data);
           console.log('ActivationStore', '已同步Go配置格式: ' + id + '.yaml');
         }
       }
@@ -117,7 +117,7 @@ export class ActivationStore {
       const buf = new ArrayBuffer(stat.size > 0 ? stat.size : 1);
       fileIo.readSync(file.fd, buf, { offset: 0, length: buf.byteLength });
       fileIo.closeSync(file);
-      const text = new util.TextDecoder().decodeWithStream(new Uint8Array(buf));
+      const text = new util.TextDecoder().decodeToString(new Uint8Array(buf));
       return text.replace(/\0/g, '').trim();
     } catch (e) {
       console.error('ActivationStore', 'readActiveProfileIdFromFile failed: ' + String(e));
@@ -138,7 +138,7 @@ export class ActivationStore {
         // 每次启动都重新同步（纯拷贝；顺带修复旧版本遗留的异常 yaml）
         const data: Uint8Array | null = await readFile(srcPath);
         if (data) {
-          await writeFile(dstPath, data);
+          writeFile(dstPath, data);
           console.log('ActivationStore', 'ensureGoConfigYaml OK: ' + activeId);
           return true;
         }

@@ -12,7 +12,6 @@
  */
 import { ThemeColors, ThemeDimen } from '../model/Theme';
 import { http } from '@kit.NetworkKit';
-import { promptAction } from '@kit.ArkUI';
 import { AppIcon, AppIconName } from '../components/AppIcon';
 
 interface UnlockService {

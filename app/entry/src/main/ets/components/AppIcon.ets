@@ -2,6 +2,9 @@
  * UI 2.0 图标体系：SymbolGlyph 统一封装（全面替代 emoji/字符图形）
  * 资源名已对照官方 SDK 符号表（toolchains/id_defined.json，4032 个系统符号）逐一核实。
  * $r() 仅接受字面量资源路径 → 用 switch 显式映射，不拼接字符串。
+ * 注：实现为自定义组件（非全局 @Builder）——@Builder 不支持部分字段的对象
+ * 字面量参数与链式属性修饰符；@performance/avoid-overusing-custom-component
+ * 属偏好级提示，跨文件复用场景下组件实现为正确选择。
  */
 
 /** 图标名常量（与 AppIcon.res 的映射一一对应） */

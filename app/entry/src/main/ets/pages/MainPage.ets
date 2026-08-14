@@ -42,7 +42,7 @@ struct MainPage {
 
   // M3-2 按 模式×自定义主色 解析并应用配色（修复原 getColors 无调用方、colors 恒浅色的问题）
   applyTheme(): void {
-    const context = getContext(this) as common.UIAbilityContext;
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     const isDark = context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
     SettingsRepository.getInstance().getThemeColor().then((custom: string) => {
       this.colors = ThemeManager.getColors(isDark, custom);
@@ -60,7 +60,7 @@ struct MainPage {
   ];
 
   aboutToAppear(): void {
-    const context = getContext(this) as common.UIAbilityContext;
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     this.appService.init(context, this.getUIContext()).then(() => {
       console.log('T1', 'AppService initialized');
       // P3-10 状态恢复：AppStorage 里 vpnOn 仍为 true（VPN 进程可能还活着）时立即验活，
@@ -184,8 +184,7 @@ struct MainPage {
               }
             }
             .width('100%')
-            .justifyContent(this.compact ? FlexAlign.Center : FlexAlign.Start)
-            .padding({ left: this.compact ? 0 : 20 })
+            .justifyContent(FlexAlign.Center)
           }
           .width('100%')
           .height(44)
@@ -199,7 +198,7 @@ struct MainPage {
       .height('100%')
       .backgroundColor(this.colors.glassNav)
       .backgroundBlurStyle(BlurStyle.Regular)
-      .alignItems(this.compact ? HorizontalAlign.Center : HorizontalAlign.Start)
+      .alignItems(HorizontalAlign.Center)
     }
     .mode(NavigationMode.Split)
     // 注意：不能用 hideNavBar(true)——会把 Split 模式的菜单栏（我们的侧栏）整个隐藏

@@ -9,7 +9,6 @@ import { ThemeColors, ThemeDimen } from '../model/Theme';
 import { AppService } from '../service/AppService';
 import { getHome, SocketProxyService, ConnectionInfo, fileExists, readText } from 'proxy_core';
 import { common } from '@kit.AbilityKit';
-import { promptAction } from '@kit.ArkUI';
 
 interface RuleItem {
   text: string;
@@ -81,7 +80,7 @@ export struct RulesPage {
 
   async loadRules(): Promise<void> {
     try {
-      const context = getContext(this) as common.UIAbilityContext;
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const activeId = await this.appService.getActiveProfileId();
       if (activeId === '') {
         this.stats = $r('app.string.rules_no_active');

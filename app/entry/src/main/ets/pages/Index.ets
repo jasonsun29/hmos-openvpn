@@ -104,7 +104,7 @@ struct Index {
 
   async doInitClash() {
     try {
-      const context = getContext(this) as common.UIAbilityContext;
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const home = context.filesDir + '/ClashBox';
       // P2-13 sync API：fileIo.accessSync / mkdirSync 替代 fs.access / fs.mkdirSync
       if (!fileIo.accessSync(home)) {
@@ -181,7 +181,7 @@ struct Index {
 
   async doStartVpn(): Promise<void> {
     try {
-      const context = getContext(this) as common.UIAbilityContext;
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const vpnWant: Want = {
         deviceId: '',
         bundleName: context.abilityInfo.bundleName,
@@ -201,7 +201,7 @@ struct Index {
 
   async doStopVpn(): Promise<void> {
     try {
-      const context = getContext(this) as common.UIAbilityContext;
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const vpnWant: Want = {
         deviceId: '',
         bundleName: context.abilityInfo.bundleName,

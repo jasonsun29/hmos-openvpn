@@ -8,7 +8,6 @@
 import { ThemeColors, ThemeDimen } from '../model/Theme';
 import { AppService } from '../service/AppService';
 import { SocketProxyService, LogInfo, LogLevel } from 'proxy_core';
-import { promptAction } from '@kit.ArkUI';
 
 @Component
 export struct LogsPage {

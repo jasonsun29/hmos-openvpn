@@ -10,7 +10,6 @@ import { ThemeColors, ThemeDimen } from '../model/Theme';
 import { AppService } from '../service/AppService';
 import { Profile, ProfileType, ProfileRepo, SubscriptionInfo, getHome, fileExists, readText } from 'proxy_core';
 import { common, abilityAccessCtrl } from '@kit.AbilityKit';
-import { promptAction } from '@kit.ArkUI';
 import { util } from '@kit.ArkTS';
 // P2-13 文件 API 统一：saveEdit 写配置文件用 fileIo.sync，文本读取走 proxy_core/readText
 // P3-7/P3-11 picker：本地文件导入 + 导出
@@ -73,7 +72,7 @@ export struct ProfilesPage {
   async loadProfiles(): Promise<void> {
     const repo: ProfileRepo | undefined = this.appService.getProfileRepo();
     if (!repo) return;
-    const context = getContext(this) as common.UIAbilityContext;
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     const list = await repo.queryAll();
     for (let p of list) {
       p.loadContext(context);
@@ -86,7 +85,7 @@ export struct ProfilesPage {
   async importFromUrl(): Promise<void> {
     const url: string = this.urlInput.trim();
     if (url === '') {
-      promptAction.showToast({ message: '请输入订阅 URL' });
+      this.getUIContext().getPromptAction().showToast({ message: '请输入订阅 URL' });
       return;
     }
     await this.doImportUrl(url);
@@ -96,13 +95,13 @@ export struct ProfilesPage {
   // P3-12 公共导入入口：URL 导入与扫码导入共用（校验 + 拉取 + 入库）
   async doImportUrl(url: string): Promise<void> {
     if (!url.startsWith('https://')) {
-      promptAction.showToast({ message: '仅支持 HTTPS 订阅（安全要求）' });
+      this.getUIContext().getPromptAction().showToast({ message: '仅支持 HTTPS 订阅（安全要求）' });
       return;
     }
     const repo: ProfileRepo | undefined = this.appService.getProfileRepo();
     if (!repo) return;
     const profile = new Profile(ProfileType.Url, url);
-    const context = getContext(this) as common.UIAbilityContext;
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     profile.loadContext(context);
     try {
       // vailConfig 回调：配置已通过 isYAML 校验，直接返回空字符串=通过
@@ -111,31 +110,31 @@ export struct ProfilesPage {
         return '';
       });
       await repo.addOrUpdate(profile);
-      promptAction.showToast({ message: '订阅导入成功: ' + profile.name });
+      this.getUIContext().getPromptAction().showToast({ message: '订阅导入成功: ' + profile.name });
       await this.loadProfiles();
     } catch (e) {
       const msg: string = errMsg(e);
       console.error('T3', '导入失败 url=' + url + ' err=' + msg + ' stack=' + ((e instanceof Error) ? e.stack : ''));
-      promptAction.showToast({ message: '导入失败: ' + msg });
+      this.getUIContext().getPromptAction().showToast({ message: '导入失败: ' + msg });
     }
   }
 
   // P3-12 扫码导入：ScanKit 默认扫码页（QR_CODE）→ 解析 URL → 复用 doImportUrl
   async scanImport(): Promise<void> {
-    const context = getContext(this) as common.UIAbilityContext;
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     try {
       // 系统扫码页需要相机预览 → 先申请 CAMERA（拒绝则提示并退出）
       const atManager = abilityAccessCtrl.createAtManager();
       const grant = await atManager.requestPermissionsFromUser(context, ['ohos.permission.CAMERA']);
       if (grant.authResults.length === 0 || grant.authResults[0] !== 0) {
-        promptAction.showToast({ message: '需要相机权限才能扫码（可在设置中开启）' });
+        this.getUIContext().getPromptAction().showToast({ message: '需要相机权限才能扫码（可在设置中开启）' });
         return;
       }
       const options: scanBarcode.ScanOptions = { scanTypes: [scanCore.ScanType.QR_CODE] };
       const result = await scanBarcode.startScanForResult(context, options);
       let url: string = (result.originalValue ?? '').trim();
       if (url === '') {
-        promptAction.showToast({ message: '未识别到内容' });
+        this.getUIContext().getPromptAction().showToast({ message: '未识别到内容' });
         return;
       }
       // 兼容 clash://install?url=... 等 schema，解析出真实订阅 URL
@@ -152,14 +151,14 @@ export struct ProfilesPage {
       const isCancel: boolean = msg.includes('1000500002') || errCode(e) === '1000500002';
       if (!isCancel) {
         console.error('T3', '扫码失败: ' + msg);
-        promptAction.showToast({ message: '扫码失败: ' + msg });
+        this.getUIContext().getPromptAction().showToast({ message: '扫码失败: ' + msg });
       }
     }
   }
 
   // P3-7 本地文件订阅导入：DocumentViewPicker 选择 .yaml/.yml → saveByUri 拷入沙箱
   async importFromFile(): Promise<void> {
-    const context = getContext(this) as common.UIAbilityContext;
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     const docPicker = new picker.DocumentViewPicker(context);
     try {
       const uris = await docPicker.select({
@@ -180,22 +179,22 @@ export struct ProfilesPage {
       const repo: ProfileRepo | undefined = this.appService.getProfileRepo();
       if (repo) {
         await repo.addOrUpdate(profile);
-        promptAction.showToast({ message: '文件导入成功' });
+        this.getUIContext().getPromptAction().showToast({ message: '文件导入成功' });
         await this.loadProfiles();
       }
     } catch (e) {
-      promptAction.showToast({ message: '导入失败: ' + errMsg(e) });
+      this.getUIContext().getPromptAction().showToast({ message: '导入失败: ' + errMsg(e) });
     }
   }
 
   // P3-11 订阅导出：把 <id>/config.yaml 复制到用户选择的保存位置
   async exportProfile(p: Profile): Promise<void> {
     try {
-      const context = getContext(this) as common.UIAbilityContext;
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const home = await getHome(context);
       const cfgPath = home + '/profiles/' + p.id + '/config.yaml';
       if (!(await fileExists(cfgPath))) {
-        promptAction.showToast({ message: '配置不存在' });
+        this.getUIContext().getPromptAction().showToast({ message: '配置不存在' });
         return;
       }
       const docPicker = new picker.DocumentViewPicker(context);
@@ -209,17 +208,17 @@ export struct ProfilesPage {
       }
       await fileIo.copyFile(cfgPath, saveUris[0]);
       console.log('Profiles', 'exportProfile 复制完成: ' + saveUris[0]);
-      promptAction.showToast({ message: '已导出' });
+      this.getUIContext().getPromptAction().showToast({ message: '已导出' });
     } catch (e) {
       console.error('Profiles', 'exportProfile 失败: ' + errMsg(e));
-      promptAction.showToast({ message: '导出失败: ' + errMsg(e) });
+      this.getUIContext().getPromptAction().showToast({ message: '导出失败: ' + errMsg(e) });
     }
   }
 
   // M3 订阅二维码分享：URL 订阅 → clash://install?url= 二维码（与扫码导入闭环）
   async showProfileQr(p: Profile): Promise<void> {
     if (p.type !== ProfileType.Url || p.url === '') {
-      promptAction.showToast({ message: '仅支持 URL 订阅生成二维码' });
+      this.getUIContext().getPromptAction().showToast({ message: '仅支持 URL 订阅生成二维码' });
       return;
     }
     this.qrContent = 'clash://install?url=' + p.url;
@@ -233,7 +232,7 @@ export struct ProfilesPage {
       this.showQr = true;
     } catch (e) {
       console.error('Profiles', '二维码生成失败: ' + errMsg(e) + ' code=' + errCode(e));
-      promptAction.showToast({ message: '二维码生成失败: ' + errMsg(e) });
+      this.getUIContext().getPromptAction().showToast({ message: '二维码生成失败: ' + errMsg(e) });
     }
   }
 
@@ -241,7 +240,7 @@ export struct ProfilesPage {
   async activateProfile(p: Profile): Promise<void> {
     this.activeId = p.id;
     await this.appService.setActiveProfileId(p.id);
-    promptAction.showToast({ message: '已激活: ' + (p.name ?? p.id) });
+    this.getUIContext().getPromptAction().showToast({ message: '已激活: ' + (p.name ?? p.id) });
   }
 
   // T3.1 删除
@@ -370,11 +369,11 @@ export struct ProfilesPage {
               .margin({ left: 6 })
               .onClick(() => this.showProfileQr(p))
               Button() {
-                AppIcon({ name: AppIconName.Trash, iconSize: 14, color: this.colors.danger })
+                AppIcon({ name: AppIconName.Trash, iconSize: 14, color: this.colors.textPrimary })
               }
               .width(28)
               .height(28)
-              .backgroundColor(this.colors.danger + '1A')
+              .backgroundColor(this.colors.glassCard)
               .borderRadius(8)
               .margin({ left: 6 })
               .onClick(() => this.deleteProfile(p))
@@ -485,7 +484,7 @@ export struct ProfilesPage {
   // T12.1 配置编辑：读取配置文件 → 编辑对话框 → 保存
   async editProfile(p: Profile): Promise<void> {
     try {
-      const context = getContext(this) as common.UIAbilityContext;
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const home = await getHome(context);
       const cfgPath = home + '/profiles/' + p.id + '/config.yaml';
       let content: string = '';
@@ -496,14 +495,14 @@ export struct ProfilesPage {
       this.editingId = p.id;
       this.showEditor = true;
     } catch (e) {
-      promptAction.showToast({ message: '读取配置失败' });
+      this.getUIContext().getPromptAction().showToast({ message: '读取配置失败' });
     }
   }
 
   // 保存编辑后的配置
   async saveEdit(): Promise<void> {
     try {
-      const context = getContext(this) as common.UIAbilityContext;
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const home = await getHome(context);
       const id = this.editingId;
       if (id === '') return;
@@ -521,9 +520,9 @@ export struct ProfilesPage {
       fileIo.writeSync(goFile.fd, enc2.buffer, { offset: 0, length: enc2.byteLength });
       fileIo.closeSync(goFile);
       this.showEditor = false;
-      promptAction.showToast({ message: '配置已保存' });
+      this.getUIContext().getPromptAction().showToast({ message: '配置已保存' });
     } catch (e) {
-      promptAction.showToast({ message: '保存失败: ' + errMsg(e) });
+      this.getUIContext().getPromptAction().showToast({ message: '保存失败: ' + errMsg(e) });
     }
   }
 

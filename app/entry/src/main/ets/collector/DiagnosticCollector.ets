@@ -32,7 +32,7 @@ export class DiagnosticCollector {
       }
       const content = lines.join('\n') + '\n';
       const encoder = new util.TextEncoder();
-      await writeFile(logPath, encoder.encodeInto(content));
+      writeFile(logPath, encoder.encodeInto(content));
       return logPath;
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);

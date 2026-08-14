@@ -12,7 +12,6 @@ import { ConfigurationConstant } from '@kit.AbilityKit';
 import { AppService } from '../service/AppService';
 import { SocketProxyService, UpdateConfigParams, ClashConfig, DnsEnhancedMode, TunStack,
   ProxyMode, Dns, Tun, getHome } from 'proxy_core';
-import { promptAction } from '@kit.ArkUI';
 // P3-8 GeoX 更新时间读取（statSync）
 import { fileIo } from '@kit.CoreFileKit';
 
@@ -46,7 +45,7 @@ export struct SettingsPage {
     this.themeIndex = index;
     const mode: ThemeMode = index === 0 ? ThemeMode.Light : (index === 1 ? ThemeMode.Dark : ThemeMode.System);
     try {
-      const context = getContext(this) as common.UIAbilityContext;
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       context.getApplicationContext().setColorMode(ThemeManager.modeToColorMode(mode));
       this.appService.setThemeMode(mode);
       // M3-2 广播：MainPage 重新解析配色（修复 colors 不随模式切换的问题）
@@ -73,7 +72,7 @@ export struct SettingsPage {
   async applyPort(): Promise<void> {
     const p: number = parseInt(this.port);
     if (isNaN(p) || p < 1 || p > 65535) {
-      promptAction.showToast({ message: '端口无效（1-65535）' });
+      this.getUIContext().getPromptAction().showToast({ message: '端口无效（1-65535）' });
       return;
     }
     await this.patchConfig((cfg: ClashConfig) => {
@@ -84,24 +83,24 @@ export struct SettingsPage {
   // T6.3 DNS 模式（P1-4 L3 变更 → TUN 重建）
   async applyDnsMode(): Promise<void> {
     const enhancedMode = this.dnsModeIndex === 0 ? 'fake-ip' : 'redir-host';
-    promptAction.showToast({ message: 'TUN 重建中（DNS → ' + enhancedMode + '）...' });
+    this.getUIContext().getPromptAction().showToast({ message: 'TUN 重建中（DNS → ' + enhancedMode + '）...' });
     const ok: boolean = await this.appService.rebuildTun({ 'dnsEnhancedMode': enhancedMode });
     if (ok) {
-      promptAction.showToast({ message: 'DNS 模式已更新' });
+      this.getUIContext().getPromptAction().showToast({ message: 'DNS 模式已更新' });
     } else {
-      promptAction.showToast({ message: 'TUN 重建失败' });
+      this.getUIContext().getPromptAction().showToast({ message: 'TUN 重建失败' });
     }
   }
 
   // T6.4 TUN 栈（P1-4 L3 变更 → TUN 重建）
   async applyTunStack(): Promise<void> {
     const stack = this.tunStackIndex === 0 ? 'system' : (this.tunStackIndex === 1 ? 'gvisor' : 'mixed');
-    promptAction.showToast({ message: 'TUN 重建中（stack → ' + stack + '）...' });
+    this.getUIContext().getPromptAction().showToast({ message: 'TUN 重建中（stack → ' + stack + '）...' });
     const ok: boolean = await this.appService.rebuildTun({ 'tunStack': stack });
     if (ok) {
-      promptAction.showToast({ message: 'TUN 栈已更新' });
+      this.getUIContext().getPromptAction().showToast({ message: 'TUN 栈已更新' });
     } else {
-      promptAction.showToast({ message: 'TUN 重建失败' });
+      this.getUIContext().getPromptAction().showToast({ message: 'TUN 重建失败' });
     }
   }
 
@@ -112,7 +111,7 @@ export struct SettingsPage {
     try {
       const activeId = await this.appService.getActiveProfileId();
       if (activeId === '') {
-        promptAction.showToast({ message: '请先在订阅页激活一个订阅' });
+        this.getUIContext().getPromptAction().showToast({ message: '请先在订阅页激活一个订阅' });
         return;
       }
       const cfg = new ClashConfig();
@@ -129,10 +128,10 @@ export struct SettingsPage {
         }
       };
       await svc.loadConfig(params);
-      promptAction.showToast({ message: successMsg });
+      this.getUIContext().getPromptAction().showToast({ message: successMsg });
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
-      promptAction.showToast({ message: '配置更新失败: ' + msg });
+      this.getUIContext().getPromptAction().showToast({ message: '配置更新失败: ' + msg });
     }
   }
 
@@ -334,13 +333,13 @@ export struct SettingsPage {
   // T8.3 日志导出
   async exportLogs(): Promise<void> {
     const path = await this.appService.exportLogs();
-    promptAction.showToast({ message: '日志已导出: ' + path });
+    this.getUIContext().getPromptAction().showToast({ message: '日志已导出: ' + path });
   }
 
   // P3-8 读 GeoX 数据文件的 mtime，展示"上次更新"
   async refreshGeoTime(): Promise<void> {
     try {
-      const context = getContext(this) as common.UIAbilityContext;
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const home = await getHome(context);
       const geoPath = home + '/geoip.metadb';
       if (!fileIo.accessSync(geoPath)) {
@@ -368,11 +367,11 @@ export struct SettingsPage {
     const svc: SocketProxyService | undefined = this.appService.getProxyService();
     if (!svc || !this.vpnOn) {
       console.warn('Settings', 'updateGeoData 跳过: svc=' + (svc !== undefined) + ', vpnOn=' + this.vpnOn);
-      promptAction.showToast({ message: 'VPN 未启动，无法更新' });
+      this.getUIContext().getPromptAction().showToast({ message: 'VPN 未启动，无法更新' });
       return;
     }
     this.geoUpdating = true;
-    promptAction.showToast({ message: 'GeoX 更新中...' });
+    this.getUIContext().getPromptAction().showToast({ message: 'GeoX 更新中...' });
     try {
       const results: string[] = [];
       results.push(await svc.updateGeoData('MMDB', 'geoip.metadb'));
@@ -381,13 +380,13 @@ export struct SettingsPage {
       results.push(await svc.updateGeoData('ASN', 'ASN.mmdb'));
       const errors: string[] = results.filter((r: string) => r !== '');
       if (errors.length > 0) {
-        promptAction.showToast({ message: '部分更新失败: ' + errors.join('; ') });
+        this.getUIContext().getPromptAction().showToast({ message: '部分更新失败: ' + errors.join('; ') });
       } else {
-        promptAction.showToast({ message: 'GeoX 更新完成' });
+        this.getUIContext().getPromptAction().showToast({ message: 'GeoX 更新完成' });
       }
       await this.refreshGeoTime();
     } catch (e) {
-      promptAction.showToast({ message: '更新失败: ' + String(e) });
+      this.getUIContext().getPromptAction().showToast({ message: '更新失败: ' + String(e) });
     } finally {
       this.geoUpdating = false;
     }

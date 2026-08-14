@@ -188,7 +188,7 @@ async function isYAML(data: string | ArrayBuffer): Promise<boolean> {
       content = data;
     } else if (data instanceof ArrayBuffer) {
       const decoder = util.TextDecoder.create('utf-8', { ignoreBOM: true });
-      content = decoder.decodeWithStream(new Uint8Array(data));
+      content = decoder.decodeToString(new Uint8Array(data));
     } else {
       return false;
     }
