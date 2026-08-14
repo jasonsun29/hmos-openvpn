@@ -5,7 +5,7 @@
  * T11.3 清空/暂停
  * 数据层：SocketProxyService.setLogObserver（核心日志回调）
  */
-import { ThemeColors } from '../model/Theme';
+import { ThemeColors, ThemeDimen } from '../model/Theme';
 import { AppService } from '../service/AppService';
 import { SocketProxyService, LogInfo, LogLevel } from 'proxy_core';
 import { promptAction } from '@kit.ArkUI';

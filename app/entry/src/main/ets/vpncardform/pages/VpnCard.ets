@@ -9,26 +9,32 @@ struct VpnCard {
   @LocalStorageProp('modeText') modeText: string = '';
 
   build() {
-    Column() {
+    Column({ space: 4 }) {
       Text('HarmonyVPN')
         .fontSize(16)
         .fontWeight(FontWeight.Bold)
         .fontColor('#007AFF')
-        .margin({ bottom: 8 })
-      Text(this.vpnStatus)
-        .fontSize(14)
-        .fontColor(this.vpnStatus.includes('已连接') ? '#07C160' : '#8E8E93')
-        .margin({ bottom: 4 })
-      Text(this.modeText)
-        .fontSize(12)
-        .fontColor('#8E8E93')
+      Row({ space: 6 }) {
+        Circle()
+          .width(8)
+          .height(8)
+          .fill(this.vpnStatus.includes('已连接') ? '#34C759' : '#8E8E93')
+        Text(this.vpnStatus)
+          .fontSize(14)
+          .fontColor(this.vpnStatus.includes('已连接') ? '#34C759' : '#8E8E93')
+      }
+      if (this.modeText !== '') {
+        Text(this.modeText)
+          .fontSize(12)
+          .fontColor('#8E8E93')
+      }
     }
     .width('100%')
     .height('100%')
     .justifyContent(FlexAlign.Center)
     .alignItems(HorizontalAlign.Center)
-    .backgroundColor('#FFFFFF')
-    .borderRadius(16)
+    .backgroundColor('rgba(255,255,255,0.85)')
+    .borderRadius(20)
     .onClick(() => {
       // 点击卡片打开应用
       postCardAction(this, {

@@ -190,14 +190,15 @@ struct MainPage {
           .width('100%')
           .height(44)
           .type(ButtonType.Normal)
-          .backgroundColor(this.currentIndex === index ? this.colors.card : Color.Transparent)
-          .borderRadius(8)
+          .backgroundColor(this.currentIndex === index ? this.colors.primarySoft : Color.Transparent)
+          .borderRadius(12)
           .onClick(() => this.onNavClick(index))
         }, (item: NavItem) => item.titleKey)
       }
       .width(this.compact ? 64 : 180)
       .height('100%')
-      .backgroundColor(this.colors.background)
+      .backgroundColor(this.colors.glassNav)
+      .backgroundBlurStyle(BlurStyle.Regular)
       .alignItems(this.compact ? HorizontalAlign.Center : HorizontalAlign.Start)
     }
     .mode(NavigationMode.Split)

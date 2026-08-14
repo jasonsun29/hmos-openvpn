@@ -10,7 +10,7 @@
  * 与核心侧逐节点检测的差异：核心 healthCheck 仅支持单一 test-url（constant.DefaultTestURL），
  * 逐节点×逐服务需要换 test-url 重发配置，留作后续 spike（见 docs/AGENT_CONTEXT）。
  */
-import { ThemeColors } from '../model/Theme';
+import { ThemeColors, ThemeDimen } from '../model/Theme';
 import { http } from '@kit.NetworkKit';
 import { promptAction } from '@kit.ArkUI';
 import { AppIcon, AppIconName } from '../components/AppIcon';
@@ -151,11 +151,11 @@ export struct UnlockPage {
   build() {
     Column() {
       Text($r('app.string.nav_unlock'))
-        .fontSize(22)
+        .fontSize(28)
         .fontWeight(FontWeight.Bold)
         .fontColor(this.colors.textPrimary)
         .width('100%')
-        .padding({ left: 24, top: 16, bottom: 8 })
+        .padding({ left: 24, top: 20, bottom: 8 })
 
       Row() {
         Text('流媒体解锁检测（当前出口）')
@@ -208,8 +208,9 @@ export struct UnlockPage {
             }
             .width('100%')
             .padding(14)
-            .borderRadius(12)
-            .backgroundColor(this.colors.card)
+            .borderRadius(ThemeDimen.RadiusRow)
+            .backgroundColor(this.colors.glassCard)
+            .backgroundBlurStyle(BlurStyle.Thin)
           }
         }, (s: UnlockService) => s.key)
       }

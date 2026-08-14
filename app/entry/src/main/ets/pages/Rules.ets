@@ -5,7 +5,7 @@
  * P2-3 实时统计：调 getRequestList RPC 拿 ConnectionInfo.rule 字段，
  *      按命中次数 top-N 展示规则命中情况
  */
-import { ThemeColors } from '../model/Theme';
+import { ThemeColors, ThemeDimen } from '../model/Theme';
 import { AppService } from '../service/AppService';
 import { getHome, SocketProxyService, ConnectionInfo, fileExists, readText } from 'proxy_core';
 import { common } from '@kit.AbilityKit';

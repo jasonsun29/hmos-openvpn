@@ -6,7 +6,7 @@
  * T3.4 节点预览
  * 数据层：proxy_core ProfileRepo（RDB）+ Profile 实体（update/save）
  */
-import { ThemeColors } from '../model/Theme';
+import { ThemeColors, ThemeDimen } from '../model/Theme';
 import { AppService } from '../service/AppService';
 import { Profile, ProfileType, ProfileRepo, SubscriptionInfo, getHome, fileExists, readText } from 'proxy_core';
 import { common, abilityAccessCtrl } from '@kit.AbilityKit';
@@ -260,39 +260,52 @@ export struct ProfilesPage {
   build() {
     Column() {
       Text($r('app.string.nav_profiles'))
-        .fontSize(22)
+        .fontSize(28)
         .fontWeight(FontWeight.Bold)
         .fontColor(this.colors.textPrimary)
         .width('100%')
-        .padding({ left: 24, top: 16, bottom: 8 })
+        .padding({ left: 24, top: 20, bottom: 8 })
 
       // URL 导入行
-      Row({ space: 8 }) {
+      Row({ space: ThemeDimen.GapS }) {
         TextInput({ placeholder: 'https://订阅链接', text: this.urlInput })
           .layoutWeight(1)
           .height(40)
           .fontSize(14)
+          .borderRadius(20)
+          .backgroundColor(this.colors.glassCard)
           .onChange((v: string) => { this.urlInput = v; })
         Button('导入')
           .height(40)
           .fontSize(13)
+          .borderRadius(20)
           .backgroundColor(this.colors.primary)
           .onClick(() => this.importFromUrl())
         // P3-7 本地文件导入
         Button('文件')
           .height(40)
           .fontSize(13)
-          .backgroundColor('#5A6B8C')
+          .borderRadius(20)
+          .fontColor(this.colors.textPrimary)
+          .backgroundColor(this.colors.glassCard)
+          .backgroundBlurStyle(BlurStyle.Thin)
           .onClick(() => this.importFromFile())
         // P3-12 扫码导入
         Button('扫码')
           .height(40)
           .fontSize(13)
-          .backgroundColor('#5A6B8C')
+          .borderRadius(20)
+          .fontColor(this.colors.textPrimary)
+          .backgroundColor(this.colors.glassCard)
+          .backgroundBlurStyle(BlurStyle.Thin)
           .onClick(() => this.scanImport())
       }
       .width('92%')
-      .margin({ bottom: 8 })
+      .padding(6)
+      .borderRadius(24)
+      .backgroundColor(this.colors.glassCard)
+      .backgroundBlurStyle(BlurStyle.Thin)
+      .margin({ bottom: ThemeDimen.GapS })
 
       // 订阅列表
       List({ space: 8 }) {
@@ -316,43 +329,61 @@ export struct ProfilesPage {
               .alignItems(HorizontalAlign.Start)
               .layoutWeight(1)
 
-              // 激活标记
+              // 激活标记（UI 2.0：胶囊徽章）
               if (this.activeId === p.id) {
-                AppIcon({ name: AppIconName.Check, iconSize: 18, color: this.colors.primary })
-                  .margin({ right: 8 })
+                Row({ space: 4 }) {
+                  AppIcon({ name: AppIconName.Check, iconSize: 12, color: this.colors.primary })
+                  Text('已激活')
+                    .fontSize(11)
+                    .fontColor(this.colors.primary)
+                }
+                .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+                .borderRadius(999)
+                .backgroundColor(this.colors.primarySoft)
+                .margin({ right: 8 })
               }
-              // 删除按钮
-              Button('删除')
-                .fontSize(12)
-                .height(30)
-                .backgroundColor('#FF3B30')
-                .onClick(() => this.deleteProfile(p))
-              // 编辑按钮
-              Button('编辑')
-                .fontSize(12)
-                .height(30)
-                .backgroundColor(this.colors.primary)
-                .margin({ left: 4 })
-                .onClick(() => this.editProfile(p))
-              // P3-11 导出按钮
-              Button('导出')
-                .fontSize(12)
-                .height(30)
-                .backgroundColor('#5A6B8C')
-                .margin({ left: 4 })
-                .onClick(() => this.exportProfile(p))
-              // M3 二维码分享
-              Button('二维码')
-                .fontSize(12)
-                .height(30)
-                .backgroundColor('#5A6B8C')
-                .margin({ left: 4 })
-                .onClick(() => this.showProfileQr(p))
+              // UI 2.0 图标操作按钮（编辑/导出/二维码/删除）
+              Button() {
+                AppIcon({ name: AppIconName.Edit, iconSize: 14, color: this.colors.primary })
+              }
+              .width(32)
+              .height(32)
+              .backgroundColor(this.colors.primarySoft)
+              .borderRadius(8)
+              .onClick(() => this.editProfile(p))
+              Button() {
+                AppIcon({ name: AppIconName.Upload, iconSize: 14, color: this.colors.textPrimary })
+              }
+              .width(32)
+              .height(32)
+              .backgroundColor(this.colors.glassCard)
+              .borderRadius(8)
+              .margin({ left: 6 })
+              .onClick(() => this.exportProfile(p))
+              Button() {
+                AppIcon({ name: AppIconName.Qrcode, iconSize: 14, color: this.colors.textPrimary })
+              }
+              .width(32)
+              .height(32)
+              .backgroundColor(this.colors.glassCard)
+              .borderRadius(8)
+              .margin({ left: 6 })
+              .onClick(() => this.showProfileQr(p))
+              Button() {
+                AppIcon({ name: AppIconName.Trash, iconSize: 14, color: this.colors.danger })
+              }
+              .width(32)
+              .height(32)
+              .backgroundColor(this.colors.danger + '1A')
+              .borderRadius(8)
+              .margin({ left: 6 })
+              .onClick(() => this.deleteProfile(p))
             }
             .width('100%')
             .padding(16)
-            .borderRadius(12)
-            .backgroundColor(this.colors.card)
+            .borderRadius(ThemeDimen.RadiusRow)
+            .backgroundColor(this.colors.glassCard)
+            .backgroundBlurStyle(BlurStyle.Thin)
             .onClick(() => this.activateProfile(p))
           }
         }, (p: Profile) => p.id)

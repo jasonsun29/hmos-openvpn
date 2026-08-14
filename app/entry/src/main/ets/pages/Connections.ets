@@ -4,7 +4,7 @@
  * T9.2 断开单个连接 / 全部断开
  * 数据层：SocketProxyService.queryConnections/closeConnection/clearConnections
  */
-import { ThemeColors } from '../model/Theme';
+import { ThemeColors, ThemeDimen } from '../model/Theme';
 import { AppService } from '../service/AppService';
 import { SocketProxyService, ConnectionInfo } from 'proxy_core';
 import { promptAction } from '@kit.ArkUI';

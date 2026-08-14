@@ -6,7 +6,7 @@
  * T6.4 TUN 栈（L3 变更：重建 TUN）
  * 下发通道：loadConfig is-patch（T2.3 配置合成管线）
  */
-import { ThemeColors, ThemeManager, ThemeMode } from '../model/Theme';
+import { ThemeColors, ThemeManager, ThemeMode, ThemeDimen } from '../model/Theme';
 import { common } from '@kit.AbilityKit';
 import { ConfigurationConstant } from '@kit.AbilityKit';
 import { AppService } from '../service/AppService';
@@ -165,8 +165,9 @@ export struct SettingsPage {
           }
           .width('100%')
           .padding(16)
-          .borderRadius(12)
-          .backgroundColor(this.colors.card)
+          .borderRadius(ThemeDimen.RadiusRow)
+          .backgroundColor(this.colors.glassCard)
+          .backgroundBlurStyle(BlurStyle.Thin)
         }
 
         // M3-2 主题色自定义（预设色板）
@@ -197,8 +198,9 @@ export struct SettingsPage {
           }
           .width('100%')
           .padding(16)
-          .borderRadius(12)
-          .backgroundColor(this.colors.card)
+          .borderRadius(ThemeDimen.RadiusRow)
+          .backgroundColor(this.colors.glassCard)
+          .backgroundBlurStyle(BlurStyle.Thin)
         }
 
         // T6.2 端口
@@ -222,8 +224,9 @@ export struct SettingsPage {
           }
           .width('100%')
           .padding(16)
-          .borderRadius(12)
-          .backgroundColor(this.colors.card)
+          .borderRadius(ThemeDimen.RadiusRow)
+          .backgroundColor(this.colors.glassCard)
+          .backgroundBlurStyle(BlurStyle.Thin)
         }
 
         // T6.3 DNS 模式（L3）
@@ -244,8 +247,9 @@ export struct SettingsPage {
           }
           .width('100%')
           .padding(16)
-          .borderRadius(12)
-          .backgroundColor(this.colors.card)
+          .borderRadius(ThemeDimen.RadiusRow)
+          .backgroundColor(this.colors.glassCard)
+          .backgroundBlurStyle(BlurStyle.Thin)
         }
 
         // T6.4 TUN 栈（L3）
@@ -267,8 +271,9 @@ export struct SettingsPage {
           }
           .width('100%')
           .padding(16)
-          .borderRadius(12)
-          .backgroundColor(this.colors.card)
+          .borderRadius(ThemeDimen.RadiusRow)
+          .backgroundColor(this.colors.glassCard)
+          .backgroundBlurStyle(BlurStyle.Thin)
         }
 
         // P3-8 GeoX 数据（geoip/geosite/asn 规则库）
@@ -292,8 +297,9 @@ export struct SettingsPage {
           }
           .width('100%')
           .padding(16)
-          .borderRadius(12)
-          .backgroundColor(this.colors.card)
+          .borderRadius(ThemeDimen.RadiusRow)
+          .backgroundColor(this.colors.glassCard)
+          .backgroundBlurStyle(BlurStyle.Thin)
         }
 
         // T8.3 日志导出
@@ -311,8 +317,9 @@ export struct SettingsPage {
           }
           .width('100%')
           .padding(16)
-          .borderRadius(12)
-          .backgroundColor(this.colors.card)
+          .borderRadius(ThemeDimen.RadiusRow)
+          .backgroundColor(this.colors.glassCard)
+          .backgroundBlurStyle(BlurStyle.Thin)
         }
       }
       .layoutWeight(1)
