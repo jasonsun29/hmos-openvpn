@@ -31,6 +31,14 @@ export struct ProxiesPage {
   // P3 重构：核心 RPC 是否可达（VPN 在线）；离线时仍可浏览/选择
   @State online: boolean = false;
   @StorageLink('vpnOn') vpnOn: boolean = false;
+  // t44 导航显示广播：回到本页时刷新（页面保留在栈中，数据可能过期）
+  @StorageLink('navPageShown') @Watch('onNavPageShownEvt') navPageShown: string = '';
+
+  onNavPageShownEvt(): void {
+    if (this.navPageShown.startsWith('Proxies')) {
+      this.loadGroups();
+    }
+  }
   // P1-6 generation 计数器：每次新测试 +1，中途检查避免竞态
   private testToken: number = 0;
   private appService: AppService = AppService.getInstance();

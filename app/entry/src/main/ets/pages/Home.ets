@@ -30,6 +30,21 @@ export struct HomePage {
   @StorageLink('vpnAlive') @Watch('onVpnAliveChanged') vpnAlive: boolean = false;
   // P1-7 监听代理切换事件，实时刷新当前代理显示
   @StorageLink('currentProxyName') @Watch('onCurrentProxyChanged') currentProxyName: string = '';
+  // t44 导航显示/隐藏广播：兼容 NavDestination 下 onPageShow/onPageHide 语义变化
+  @StorageLink('navPageShown') @Watch('onNavPageShownEvt') navPageShown: string = '';
+  @StorageLink('navPageHidden') @Watch('onNavPageHiddenEvt') navPageHidden: string = '';
+
+  onNavPageShownEvt(): void {
+    if (this.navPageShown.startsWith('Home')) {
+      this.onPageShow();
+    }
+  }
+
+  onNavPageHiddenEvt(): void {
+    if (this.navPageHidden.startsWith('Home')) {
+      this.onPageHide();
+    }
+  }
 
   onVpnAliveChanged(): void {
     // P0-4 心跳探测到核心挂了 → 复位 UI 状态，防“假连接”bug
@@ -235,6 +250,9 @@ export struct HomePage {
 
   // T5.3 流量轮询（1Hz 差分）
   startTrafficPoll(): void {
+    if (this.trafficTimer !== -1) {
+      return; // t44 防重复：NavDestination 下 onPageShow 可能多次触发
+    }
     this.prevDown = 0;
     this.prevUp = 0;
     this.trafficTimer = setInterval(() => {

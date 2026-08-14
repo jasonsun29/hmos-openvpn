@@ -2,6 +2,11 @@
  * hmos-openvpn M1: 主框架页（左侧导航栏 + 内容区）
  * 对齐 Clash Verge _layout.tsx：左侧导航栏 + 内容区
  * 导航项用 Button 组件（onClick 绑定可靠，Row 在真机有事件失效问题）
+ * P3-15（t44）Navigation/NavDestination 迁移：
+ *   - 页面保留在路由栈中（切页不销毁：轮询/滚动/搜索状态保留）
+ *   - 侧栏点击：栈中已有该页 → popToIndex 回到栈顶；没有 → pushPathByName
+ *   - onShown/onHidden 经 AppStorage 广播，页面 @Watch 做刷新/暂停
+ *     （兼容 NavDestination 下 onPageShow/onPageHide 的生命周期语义变化）
  */
 import { common } from '@kit.AbilityKit';
 import { HomePage } from './Home';
@@ -21,15 +26,16 @@ struct MainPage {
   @State currentIndex: number = 0;
   @Provide colors: ThemeColors = ThemeManager.lightColors;
   @Provide coreState: CoreState = new CoreState();
+  @Provide('pathStack') pathStack: NavPathStack = new NavPathStack();
   private appService: AppService = AppService.getInstance();
   private navItems: Array<NavItem> = [
-    { titleKey: 'nav_home', icon: '\uE6AE' },
-    { titleKey: 'nav_proxies', icon: '\uE6A8' },
-    { titleKey: 'nav_profiles', icon: '\uE726' },
-    { titleKey: 'nav_settings', icon: '\uE6F0' },
-    { titleKey: 'nav_connections', icon: '\uE6B4' },
-    { titleKey: 'nav_rules', icon: '\uE6D9' },
-    { titleKey: 'nav_logs', icon: '\uE6DD' }
+    { titleKey: 'nav_home', icon: '\uE6AE', pageName: 'Home' },
+    { titleKey: 'nav_proxies', icon: '\uE6A8', pageName: 'Proxies' },
+    { titleKey: 'nav_profiles', icon: '\uE726', pageName: 'Profiles' },
+    { titleKey: 'nav_settings', icon: '\uE6F0', pageName: 'Settings' },
+    { titleKey: 'nav_connections', icon: '\uE6B4', pageName: 'Connections' },
+    { titleKey: 'nav_rules', icon: '\uE6D9', pageName: 'Rules' },
+    { titleKey: 'nav_logs', icon: '\uE6DD', pageName: 'Logs' }
   ];
 
   aboutToAppear(): void {
@@ -44,10 +50,83 @@ struct MainPage {
     }).catch((e: Error) => {
       console.error('T1', 'AppService init failed: ' + e.message);
     });
+    // t44 初始页推入（栈空时）
+    if (this.pathStack.getIndexByName('Home').length === 0) {
+      this.pathStack.pushPathByName('Home', null);
+    }
+  }
+
+  // t44 侧栏导航：栈中已有该页 → 回到栈顶（保留状态）；没有 → 推入（首次加载刷新数据）
+  onNavClick(index: number): void {
+    console.log('NAV', 'click index=' + index + ' key=' + this.navItems[index].titleKey);
+    this.currentIndex = index;
+    const name = this.navItems[index].pageName;
+    const indices = this.pathStack.getIndexByName(name);
+    if (indices.length > 0) {
+      this.pathStack.popToIndex(indices[indices.length - 1]);
+    } else {
+      this.pathStack.pushPathByName(name, null);
+    }
+  }
+
+  // t44 页面显示/隐藏广播（AppStorage），页面侧 @Watch 处理刷新/暂停
+  private onPageShown(name: string): void {
+    AppStorage.setOrCreate('navPageShown', name + '_' + Date.now());
+  }
+
+  private onPageHidden(name: string): void {
+    AppStorage.setOrCreate('navPageHidden', name + '_' + Date.now());
+  }
+
+  @Builder
+  pageMap(name: string) {
+    if (name === 'Home') {
+      NavDestination() {
+        HomePage()
+      }
+      .onShown(() => this.onPageShown('Home'))
+      .onHidden(() => this.onPageHidden('Home'))
+    } else if (name === 'Proxies') {
+      NavDestination() {
+        ProxiesPage()
+      }
+      .onShown(() => this.onPageShown('Proxies'))
+      .onHidden(() => this.onPageHidden('Proxies'))
+    } else if (name === 'Profiles') {
+      NavDestination() {
+        ProfilesPage()
+      }
+      .onShown(() => this.onPageShown('Profiles'))
+      .onHidden(() => this.onPageHidden('Profiles'))
+    } else if (name === 'Settings') {
+      NavDestination() {
+        SettingsPage()
+      }
+      .onShown(() => this.onPageShown('Settings'))
+      .onHidden(() => this.onPageHidden('Settings'))
+    } else if (name === 'Connections') {
+      NavDestination() {
+        ConnectionsPage()
+      }
+      .onShown(() => this.onPageShown('Connections'))
+      .onHidden(() => this.onPageHidden('Connections'))
+    } else if (name === 'Rules') {
+      NavDestination() {
+        RulesPage()
+      }
+      .onShown(() => this.onPageShown('Rules'))
+      .onHidden(() => this.onPageHidden('Rules'))
+    } else if (name === 'Logs') {
+      NavDestination() {
+        LogsPage()
+      }
+      .onShown(() => this.onPageShown('Logs'))
+      .onHidden(() => this.onPageHidden('Logs'))
+    }
   }
 
   build() {
-    Row() {
+    Navigation(this.pathStack) {
       // 左侧导航栏
       Column() {
         Text('hmos-openvpn')
@@ -76,67 +155,17 @@ struct MainPage {
           .type(ButtonType.Normal)
           .backgroundColor(this.currentIndex === index ? '#E8F2FF' : Color.Transparent)
           .borderRadius(8)
-          .onClick(() => {
-            console.log('NAV', 'click index=' + index + ' key=' + item.titleKey);
-            this.currentIndex = index;
-          })
+          .onClick(() => this.onNavClick(index))
         }, (item: NavItem) => item.titleKey)
       }
       .width(180)
       .height('100%')
       .backgroundColor(this.colors.background)
       .alignItems(HorizontalAlign.Start)
-
-      // 内容区（build 内条件渲染）
-      Column() {
-        Row() {
-          Text($r('app.string.' + this.navItems[this.currentIndex].titleKey))
-            .fontSize(22)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(this.colors.textPrimary)
-            .layoutWeight(1)
-          Text('idx=' + this.currentIndex)
-            .fontSize(16)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#FF3B30')
-            .margin({ right: 24 })
-        }
-        .width('100%')
-        .padding({ left: 24, top: 16, bottom: 16 })
-        if (this.currentIndex === 0) {
-          HomePage()
-        } else if (this.currentIndex === 1) {
-          ProxiesPage()
-        } else if (this.currentIndex === 2) {
-          ProfilesPage()
-        } else if (this.currentIndex === 3) {
-          SettingsPage()
-        } else if (this.currentIndex === 4) {
-          ConnectionsPage()
-        } else if (this.currentIndex === 5) {
-          RulesPage()
-        } else if (this.currentIndex === 6) {
-          LogsPage()
-        } else {
-          // M2 占位页
-          Column() {
-            Text($r('app.string.' + this.navItems[this.currentIndex].titleKey))
-              .fontSize(16)
-              .fontColor(this.colors.textSecondary)
-              .margin({ top: 60 })
-            Text('M2')
-              .fontSize(13)
-              .fontColor(this.colors.textSecondary)
-              .margin({ top: 8 })
-          }
-          .width('100%')
-          .height('100%')
-        }
-      }
-      .layoutWeight(1)
-      .height('100%')
-      .backgroundColor(this.colors.card)
     }
+    .mode(NavigationMode.Split)
+    .hideNavBar(true)
+    .navDestination(this.pageMap)
     .width('100%')
     .height('100%')
   }
@@ -145,4 +174,5 @@ struct MainPage {
 interface NavItem {
   titleKey: string;
   icon: string;
+  pageName: string;
 }

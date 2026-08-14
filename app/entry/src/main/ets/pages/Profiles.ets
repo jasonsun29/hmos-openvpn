@@ -297,51 +297,56 @@ export struct ProfilesPage {
       .layoutWeight(1)
       .width('100%')
       .padding({ left: 16, right: 16 })
-
-      // T12.1 配置编辑对话框
-      if (this.showEditor) {
-        Column() {
-          Row() {
-            Text('编辑配置')
-              .fontSize(16)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(this.colors.textPrimary)
-              .layoutWeight(1)
-            Button('关闭')
-              .fontSize(12)
-              .height(30)
-              .backgroundColor('#999999')
-              .onClick(() => { this.showEditor = false; })
-          }
-          .width('100%')
-
-          TextArea({ text: this.editContent })
-            .width('100%')
-            .layoutWeight(1)
-            .fontSize(12)
-            .onChange((v: string) => { this.editContent = v; })
-
-          Button('保存配置')
-            .width('100%')
-            .height(40)
-            .fontSize(14)
-            .backgroundColor(this.colors.primary)
-            .margin({ top: 8 })
-            .onClick(() => this.saveEdit())
-        }
-        .width('90%')
-        .height('70%')
-        .padding(16)
-        .borderRadius(12)
-        .backgroundColor(this.colors.card)
-        .position({ x: '5%', y: '10%' })
-        .zIndex(10)
-      }
     }
     .width('100%')
     .height('100%')
     .backgroundColor(this.colors.background)
     .alignItems(HorizontalAlign.Center)
+    // P3-4（t33）配置编辑对话框：手写覆盖层改为系统 bindSheet
+    // （系统级动画、返回键/下滑关闭，$$ 双向绑定）
+    .bindSheet($$this.showEditor, this.editorSheet(), {
+      height: '70%',
+      showClose: true,
+      dragBar: true
+    })
+  }
+
+  // P3-4（t33）编辑器 Sheet 内容
+  @Builder
+  editorSheet() {
+    Column() {
+      Row() {
+        Text('编辑配置')
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.colors.textPrimary)
+          .layoutWeight(1)
+        Button('关闭')
+          .fontSize(12)
+          .height(30)
+          .backgroundColor('#999999')
+          .onClick(() => { this.showEditor = false; })
+      }
+      .width('100%')
+
+      TextArea({ text: this.editContent })
+        .width('100%')
+        .layoutWeight(1)
+        .fontSize(12)
+        .onChange((v: string) => { this.editContent = v; })
+
+      Button('保存配置')
+        .width('100%')
+        .height(40)
+        .fontSize(14)
+        .backgroundColor(this.colors.primary)
+        .margin({ top: 8 })
+        .onClick(() => this.saveEdit())
+    }
+    .width('100%')
+    .height('100%')
+    .padding(16)
+    .backgroundColor(this.colors.card)
   }
 
   // T12.1 配置编辑：读取配置文件 → 编辑对话框 → 保存

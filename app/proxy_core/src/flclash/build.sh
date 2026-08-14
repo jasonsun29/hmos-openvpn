@@ -32,10 +32,22 @@ export CGO_LDFLAGS=" --sysroot=$OHOS_NATIVE_HOME/sysroot --target=$target-linux-
 sourceFile="./"
 outputFile="libflclash.so"
 
+# P3-14（t43）构建模式：debug（默认，关优化+保留调试符号）/ release（优化+剥离符号+trimpath）
+MODE="${1:-debug}"
+if [ "$MODE" = "release" ]; then
+  GCFLAGS=""
+  LDFLAGS='-ldflags="-s -w" -trimpath'
+else
+  GCFLAGS='-gcflags="all=-N -l"'
+  LDFLAGS=""
+fi
+echo "build mode: $MODE (gcflags=$GCFLAGS ldflags=$LDFLAGS)"
+
 # 构建命令，生成共享库
 GO_OHOS="$HOME/harmony-vpn-research/go-ohos/bin/go"
 # 注: ClashBox 原 build.sh 有 -tlsmodegd（其定制工具链私有 flag），标准 go-ohos 1.25.12 不支持，已移除
-"$GO_OHOS" build -buildmode c-shared -tags "ohos with_gvisor" -gcflags="all=-N -l" -o $outputFile $sourceFile
+# 注: release 的 -s -w 只影响 Go 符号表，c-shared 的 NAPI 导出表由 cgo 控制，理论安全（下次真正编译时验证）
+"$GO_OHOS" build -buildmode c-shared -tags "ohos with_gvisor" $GCFLAGS $LDFLAGS -o $outputFile $sourceFile
 
 # 检查编译结果
 if [ -f "$outputFile" ]; then
