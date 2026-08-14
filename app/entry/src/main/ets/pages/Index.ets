@@ -112,12 +112,12 @@ struct Index {
       }
       initClash(home, '1.0.0');
       this.loaded = true;
-      this.message = '✅ 核心加载成功';
+      this.message = '核心加载成功';
       this.detail = 'initClash OK\n工作目录: ' + home;
       console.log('M0b1', 'initClash success');
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
-      this.message = '❌ 核心加载失败';
+      this.message = '核心加载失败';
       this.detail = 'error: ' + msg;
       console.error('M0b1', 'initClash failed: ' + msg);
     }

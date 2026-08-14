@@ -21,6 +21,7 @@ import { ThemeColors, ThemeManager } from '../model/Theme';
 import { CoreState } from '../model/CoreState';
 import { AppService } from '../service/AppService';
 import { SettingsRepository } from '../repository/SettingsRepository';
+import { AppIcon, AppIconName } from '../components/AppIcon';
 
 @Entry
 @Component
@@ -48,14 +49,14 @@ struct MainPage {
     });
   }
   private navItems: Array<NavItem> = [
-    { titleKey: 'nav_home', icon: '\uE6AE', pageName: 'Home' },
-    { titleKey: 'nav_proxies', icon: '\uE6A8', pageName: 'Proxies' },
-    { titleKey: 'nav_profiles', icon: '\uE726', pageName: 'Profiles' },
-    { titleKey: 'nav_settings', icon: '\uE6F0', pageName: 'Settings' },
-    { titleKey: 'nav_connections', icon: '\uE6B4', pageName: 'Connections' },
-    { titleKey: 'nav_rules', icon: '\uE6D9', pageName: 'Rules' },
-    { titleKey: 'nav_logs', icon: '\uE6DD', pageName: 'Logs' },
-    { titleKey: 'nav_unlock', icon: '🎬', pageName: 'Unlock' }
+    { titleKey: 'nav_home', icon: AppIconName.Home, iconFill: AppIconName.HomeFill, pageName: 'Home' },
+    { titleKey: 'nav_proxies', icon: AppIconName.Proxies, pageName: 'Proxies' },
+    { titleKey: 'nav_profiles', icon: AppIconName.Profiles, pageName: 'Profiles' },
+    { titleKey: 'nav_settings', icon: AppIconName.Settings, pageName: 'Settings' },
+    { titleKey: 'nav_connections', icon: AppIconName.Connections, pageName: 'Connections' },
+    { titleKey: 'nav_rules', icon: AppIconName.Rules, pageName: 'Rules' },
+    { titleKey: 'nav_logs', icon: AppIconName.Logs, pageName: 'Logs' },
+    { titleKey: 'nav_unlock', icon: AppIconName.Unlock, pageName: 'Unlock' }
   ];
 
   aboutToAppear(): void {
@@ -156,23 +157,30 @@ struct MainPage {
     Navigation(this.pathStack) {
       // 左侧导航栏（M2 折叠态：窄屏降级为图标栏）
       Column() {
-        Text(this.compact ? '✈' : 'hmos-openvpn')
-          .fontSize(16)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(this.colors.primary)
-          .margin({ top: 24, bottom: 24 })
+        Row({ space: 8 }) {
+          AppIcon({ name: AppIconName.Logo, iconSize: 20, color: this.colors.primary })
+          if (!this.compact) {
+            Text('hmos-openvpn')
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(this.colors.primary)
+          }
+        }
+        .margin({ top: 24, bottom: 24 })
 
         ForEach(this.navItems, (item: NavItem, index: number) => {
           // 用 Button 承载导航项（onClick 可靠）
           Button() {
             Row({ space: 12 }) {
-              Text(item.icon)
-                .fontSize(18)
-                .fontColor(this.currentIndex === index ? '#007AFF' : '#666666')
+              AppIcon({
+                name: (this.currentIndex === index && item.iconFill !== undefined) ? item.iconFill : item.icon,
+                iconSize: 18,
+                color: this.currentIndex === index ? this.colors.primary : this.colors.textSecondary
+              })
               if (!this.compact) {
                 Text($r('app.string.' + item.titleKey))
                   .fontSize(14)
-                  .fontColor(this.currentIndex === index ? '#007AFF' : '#666666')
+                  .fontColor(this.currentIndex === index ? this.colors.primary : this.colors.textSecondary)
               }
             }
             .width('100%')
@@ -182,7 +190,7 @@ struct MainPage {
           .width('100%')
           .height(44)
           .type(ButtonType.Normal)
-          .backgroundColor(this.currentIndex === index ? '#E8F2FF' : Color.Transparent)
+          .backgroundColor(this.currentIndex === index ? this.colors.card : Color.Transparent)
           .borderRadius(8)
           .onClick(() => this.onNavClick(index))
         }, (item: NavItem) => item.titleKey)
@@ -213,5 +221,6 @@ struct MainPage {
 interface NavItem {
   titleKey: string;
   icon: string;
+  iconFill?: string;
   pageName: string;
 }

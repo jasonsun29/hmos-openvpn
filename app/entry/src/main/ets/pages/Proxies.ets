@@ -20,6 +20,7 @@ import { AppService } from '../service/AppService';
 import { ProxyGroup, ProxyMode, Proxy, ProxyType, SocketProxyService, SelectedMapStore,
   ConfigReader, YamlConfigView } from 'proxy_core';
 import { common } from '@kit.AbilityKit';
+import { AppIcon, AppIconName } from '../components/AppIcon';
 import { promptAction } from '@kit.ArkUI';
 
 @Component
@@ -318,8 +319,7 @@ export struct ProxiesPage {
             Column({ space: 4 }) {
               // 组头（可点击展开）
               Row() {
-                Text(this.groupIcon(group.type))
-                  .fontSize(16)
+                AppIcon({ name: this.groupIcon(group.type), iconSize: 16, color: this.colors.textPrimary })
                   .margin({ right: 8 })
                 Text(group.name)
                   .fontSize(15)
@@ -333,10 +333,12 @@ export struct ProxiesPage {
                   .fontColor(this.colors.textSecondary)
                   .margin({ right: 8 })
                 // 单组测速按钮
-                Button('⚡')
-                  .fontSize(13)
-                  .height(28)
-                  .backgroundColor(this.testing ? '#8A8A8A' : this.colors.primary)
+                Button() {
+                  AppIcon({ name: AppIconName.UrlTest, iconSize: 13, color: '#FFFFFF' })
+                }
+                .height(28)
+                .width(28)
+                .backgroundColor(this.testing ? '#8A8A8A' : this.colors.primary)
                   .onClick(() => {
                     if (!this.online) {
                       promptAction.showToast({ message: '测速需开启 VPN' });
@@ -351,9 +353,11 @@ export struct ProxiesPage {
                       }
                     });
                   })
-                Text(this.expanded[group.name] ? '▾' : '▸')
-                  .fontSize(14)
-                  .fontColor(this.colors.textSecondary)
+                AppIcon({
+                  name: this.expanded[group.name] ? AppIconName.ChevronDown : AppIconName.ChevronRight,
+                  iconSize: 14,
+                  color: this.colors.textSecondary
+                })
               }
               .width('100%')
               .onClick(() => {
@@ -378,9 +382,7 @@ export struct ProxiesPage {
                         .fontColor(p.latency !== undefined && p.latency > 0 ? '#07C160' : this.colors.textSecondary)
                         .margin({ right: 8 })
                       if (p.name === group.now) {
-                        Text('✓')
-                          .fontSize(14)
-                          .fontColor(this.colors.primary)
+                        AppIcon({ name: AppIconName.Check, iconSize: 14, color: this.colors.primary })
                       }
                     }
                     .width('100%')
@@ -388,7 +390,7 @@ export struct ProxiesPage {
                   .width('100%')
                   .height(44)
                   .padding({ left: 24, right: 16 })
-                  .backgroundColor(p.name === group.now ? '#E8F2FF' : Color.Transparent)
+                  .backgroundColor(p.name === group.now ? this.colors.card : Color.Transparent)
                   .borderRadius(6)
                   .type(ButtonType.Normal)
                   .onClick(() => this.changeNode(group, p.name))
@@ -447,12 +449,12 @@ export struct ProxiesPage {
 
   groupIcon(type: string): string {
     switch (type) {
-      case 'Selector': return '🔀';
-      case 'URLTest': return '⚡';
-      case 'Fallback': return '🛡';
-      case 'LoadBalance': return '⚖';
-      case 'Relay': return '🔗';
-      default: return '📦';
+      case 'Selector': return AppIconName.Selector;
+      case 'URLTest': return AppIconName.UrlTest;
+      case 'Fallback': return AppIconName.Fallback;
+      case 'LoadBalance': return AppIconName.LoadBalance;
+      case 'Relay': return AppIconName.Relay;
+      default: return AppIconName.DefaultGroup;
     }
   }
 

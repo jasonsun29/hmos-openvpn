@@ -13,6 +13,7 @@
 import { ThemeColors } from '../model/Theme';
 import { http } from '@kit.NetworkKit';
 import { promptAction } from '@kit.ArkUI';
+import { AppIcon, AppIconName } from '../components/AppIcon';
 
 interface UnlockService {
   key: string;
@@ -120,10 +121,20 @@ export struct UnlockPage {
   statusText(r: UnlockResult): string {
     switch (r.status) {
       case 'testing': return '检测中...';
-      case 'unlocked': return '✅ 解锁';
-      case 'blocked': return '❌ 不可用';
-      case 'failed': return '⚠️ 失败';
+      case 'unlocked': return '解锁';
+      case 'blocked': return '不可用';
+      case 'failed': return '失败';
       default: return '未检测';
+    }
+  }
+
+  // 状态图标名（SymbolGlyph）
+  statusIcon(r: UnlockResult): string {
+    switch (r.status) {
+      case 'unlocked': return AppIconName.Success;
+      case 'blocked': return AppIconName.Fail;
+      case 'failed': return AppIconName.Warn;
+      default: return AppIconName.Clock;
     }
   }
 
@@ -177,10 +188,17 @@ export struct UnlockPage {
               .alignItems(HorizontalAlign.Start)
               .layoutWeight(1)
 
-              Text(this.statusText(this.resultOf(s.key)))
-                .fontSize(13)
-                .fontColor(this.statusColor(this.resultOf(s.key)))
-                .margin({ right: 8 })
+              Row({ space: 4 }) {
+                AppIcon({
+                  name: this.statusIcon(this.resultOf(s.key)),
+                  iconSize: 14,
+                  color: this.statusColor(this.resultOf(s.key))
+                })
+                Text(this.statusText(this.resultOf(s.key)))
+                  .fontSize(13)
+                  .fontColor(this.statusColor(this.resultOf(s.key)))
+              }
+              .margin({ right: 8 })
 
               Button('检测')
                 .fontSize(12)

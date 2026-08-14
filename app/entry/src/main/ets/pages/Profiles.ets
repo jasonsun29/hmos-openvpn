@@ -18,6 +18,7 @@ import { fileIo, picker } from '@kit.CoreFileKit';
 // P3-12 扫码导入（系统 ScanKit 默认扫码页）；M3 二维码分享（generateBarcode）
 import { scanCore, scanBarcode, generateBarcode } from '@kit.ScanKit';
 import { image } from '@kit.ImageKit';
+import { AppIcon, AppIconName } from '../components/AppIcon';
 
 // BusinessError 在 OHOS 上不是 Error 实例：统一提取 code/message（否则显示 [object Object]）
 function errMsg(e: Object): string {
@@ -317,9 +318,7 @@ export struct ProfilesPage {
 
               // 激活标记
               if (this.activeId === p.id) {
-                Text('✓')
-                  .fontSize(18)
-                  .fontColor(this.colors.primary)
+                AppIcon({ name: AppIconName.Check, iconSize: 18, color: this.colors.primary })
                   .margin({ right: 8 })
               }
               // 删除按钮

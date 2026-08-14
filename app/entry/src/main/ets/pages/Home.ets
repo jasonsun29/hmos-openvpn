@@ -422,8 +422,8 @@ export struct HomePage {
       });
       const elapsed = Date.now() - t0;
       const code = resp.responseCode;
-      this.testResult = '204 测试: HTTP ' + code + '，耗时 ' + elapsed + 'ms ' +
-        (code === 204 || code === 200 ? '✅' : '⚠️');
+      this.testResult = '204 测试: HTTP ' + code + '，耗时 ' + elapsed + 'ms，' +
+        (code === 204 || code === 200 ? '通过' : '异常');
       httpRequest.destroy();
     } catch (e) {
       const elapsed = Date.now() - t0;
