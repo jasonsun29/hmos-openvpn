@@ -332,14 +332,10 @@ export class SocketProxyService implements IClashManager {
         client.send({ data: JSON.stringify({method, params}) });
       }).catch((e:Error)=>{
         this.active = false
-        console.error("vpn服务启动失败", e.message, e.stack)
-        if (e.message == "Connection refused"){
-          // P0-2 toast 限频
-          ToastThrottler.show(SocketProxyService.promptAction, "VPN服务被系统干掉了")
-        } else {
-          // P0-2 toast 限频
-          ToastThrottler.show(SocketProxyService.promptAction, "vpn服务失败: " + e.message)
-        }
+        // 用户反馈修复：连接期间 RPC 会经历“VPN 进程尚未就绪→Connection refused”的
+        // 启动窗口，toast「VPN服务被系统干掉了」是误报，直接干掉。
+        // 真实的“系统杀进程”由心跳机制静默处理（vpnAlive→false → Home 自动复位开关）。
+        console.error("vpn服务连接失败", e.message, e.stack)
         reject(e)
       });
     })
