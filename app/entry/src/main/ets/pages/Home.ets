@@ -12,7 +12,9 @@
 import { common, Want } from '@kit.AbilityKit';
 import { vpnExtension } from '@kit.NetworkKit';
 import { http } from '@kit.NetworkKit';
-import { ThemeColors } from '../model/Theme';
+import { ThemeColors, ThemeDimen } from '../model/Theme';
+import { GlassCard } from '../components/GlassCard';
+import { AppIcon, AppIconName } from '../components/AppIcon';
 import { AppService } from '../service/AppService';
 import { BackgroundKeepAliveService } from '../service/BackgroundKeepAliveService';
 import { SocketProxyService, ProxyMode, ProxyGroup, Traffic, SelectedMapStore, ConfigReader } from 'proxy_core';
@@ -439,177 +441,182 @@ export struct HomePage {
 
   build() {
     Scroll() {
-      Column({ space: 12 }) {
-      Text($r('app.string.nav_home'))
-        .fontSize(22)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(this.colors.textPrimary)
-        .width('100%')
-        .padding({ left: 24, top: 16 })
-
-      // T5.1 VPN 开关卡
-      Row() {
-        Column({ space: 4 }) {
-          Text($r('app.string.vpn_status'))
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.colors.textPrimary)
-          Text(this.vpnState.startsWith('vpn_') ? $r('app.string.' + this.vpnState) : this.vpnState)
-            .fontSize(13)
-            .fontColor(this.vpnOn ? '#07C160' : this.colors.textSecondary)
-        }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-
-        Toggle({ type: ToggleType.Switch, isOn: this.vpnOn })
-          .selectedColor('#07C160')
-          .onChange((isOn: boolean) => {
-            // 防抖：toggleVpn 执行期间忽略重复触发（Toggle 可能触发多次 onChange）
-            if (this.toggling) {
-              return;
-            }
-            if (isOn === this.vpnOn) {
-              return;
-            }
-            this.toggling = true;
-            this.vpnOn = isOn;
-            this.toggleVpn(isOn).finally(() => {
-              setTimeout(() => {
-                this.toggling = false;
-              }, 500);
-            });
-          })
-      }
-      .width('92%')
-      .padding(16)
-      .borderRadius(12)
-      .backgroundColor(this.colors.card)
-
-      // T5.2 模式切换卡
-      Row({ space: 8 }) {
-        Text($r('app.string.proxy_mode'))
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
+      Column({ space: ThemeDimen.GapM }) {
+        Text($r('app.string.nav_home'))
+          .fontSize(28)
+          .fontWeight(FontWeight.Bold)
           .fontColor(this.colors.textPrimary)
+          .width('100%')
+          .padding({ left: 24, top: 20, bottom: 4 })
+
+        // UI 2.0 Hero 状态卡（玻璃大卡：状态大字 + 大开关 + 当前代理）
+        GlassCard({ radius: 24, marginH: ThemeDimen.PagePad }) {
+          Column({ space: 12 }) {
+            Row() {
+              Text($r('app.string.vpn_status'))
+                .fontSize(13)
+                .fontColor(this.colors.textSecondary)
+              Blank()
+              Circle()
+                .width(8)
+                .height(8)
+                .fill(this.vpnOn ? this.colors.success : this.colors.textSecondary)
+            }
+            .width('100%')
+            Row() {
+              Text(this.vpnState.startsWith('vpn_') ? $r('app.string.' + this.vpnState) : this.vpnState)
+                .fontSize(28)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(this.vpnOn ? this.colors.success : this.colors.textPrimary)
+              Blank()
+              Toggle({ type: ToggleType.Switch, isOn: this.vpnOn })
+                .selectedColor(this.colors.success)
+                .scale({ x: 1.15, y: 1.15 })
+                .onChange((isOn: boolean) => {
+                  // 防抖：toggleVpn 执行期间忽略重复触发（Toggle 可能触发多次 onChange）
+                  if (this.toggling) {
+                    return;
+                  }
+                  if (isOn === this.vpnOn) {
+                    return;
+                  }
+                  this.toggling = true;
+                  this.vpnOn = isOn;
+                  this.toggleVpn(isOn).finally(() => {
+                    setTimeout(() => {
+                      this.toggling = false;
+                    }, 500);
+                  });
+                })
+            }
+            .width('100%')
+            Row() {
+              Text($r('app.string.current_proxy'))
+                .fontSize(13)
+                .fontColor(this.colors.textSecondary)
+              Blank()
+              Text(this.currentProxy)
+                .fontSize(13)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.colors.primary)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            }
+            .width('100%')
+          }
+        }
+
+        // UI 2.0 模式分段控件（胶囊组）
         Row({ space: 4 }) {
           this.modeBtn('rule', 'mode_rule')
           this.modeBtn('global', 'mode_global')
           this.modeBtn('direct', 'mode_direct')
         }
-        .layoutWeight(1)
-        .justifyContent(FlexAlign.End)
-      }
-      .width('92%')
-      .padding(16)
-      .borderRadius(12)
-      .backgroundColor(this.colors.card)
+        .padding(4)
+        .borderRadius(999)
+        .backgroundColor(this.colors.glassCard)
+        .backgroundBlurStyle(BlurStyle.Thin)
 
-      // T5.3 流量卡（1Hz 差分速率）
-      Column({ space: 8 }) {
-        Row() {
-          Text($r('app.string.traffic'))
-            .fontSize(15)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.colors.textPrimary)
-          Blank()
-          Text('↓ ' + this.formatRate(this.downRate))
-            .fontSize(13)
-            .fontColor('#07C160')
-          Text('  ↑ ' + this.formatRate(this.upRate))
-            .fontSize(13)
-            .fontColor(this.colors.primary)
-        }
-        .width('100%')
-        Row() {
-          Text('累计: ↓ ' + this.downTotal + '  ↑ ' + this.upTotal)
-            .fontSize(12)
-            .fontColor(this.colors.textSecondary)
-        }
-        .width('100%')
-        // T5.3b 实时流量波形（Canvas，P3-1 宽度自适应容器）
-        Canvas(this.canvasCtx)
-          .width('100%')
-          .height(90)
-          .margin({ top: 8 })
-          .onAreaChange((_old: Area, newArea: Area) => {
-            this.canvasW = Number(newArea.width);
-            this.canvasH = Number(newArea.height);
-            this.drawTrafficGraph();
-          })
-          .onReady(() => {
-            if (this.canvasCtx) {
-              this.drawTrafficGraph();
+        // UI 2.0 流量玻璃卡（1Hz 差分速率 + 实时波形）
+        GlassCard({ marginH: ThemeDimen.PagePad }) {
+          Column({ space: 8 }) {
+            Row() {
+              Text($r('app.string.traffic'))
+                .fontSize(15)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.colors.textPrimary)
+              Blank()
+              Text('↓ ' + this.formatRate(this.downRate))
+                .fontSize(13)
+                .fontColor(this.colors.success)
+              Text('  ↑ ' + this.formatRate(this.upRate))
+                .fontSize(13)
+                .fontColor(this.colors.primary)
             }
-          })
-      }
-      .width('92%')
-      .padding(16)
-      .borderRadius(12)
-      .backgroundColor(this.colors.card)
-
-      // T5.4 当前代理卡
-      Row() {
-        Text($r('app.string.current_proxy'))
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.colors.textPrimary)
-          .layoutWeight(1)
-        Text(this.currentProxy)
-          .fontSize(14)
-          .fontColor(this.colors.primary)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-      }
-      .width('92%')
-      .padding(16)
-      .borderRadius(12)
-      .backgroundColor(this.colors.card)
-      .onClick(() => this.refreshCurrentProxy())
-
-      // T5.5 IP 信息卡
-      Row() {
-        Text('本地出口 IP')
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.colors.textPrimary)
-          .layoutWeight(1)
-        Text(this.ipInfo === '' ? '--' : this.ipInfo)
-          .fontSize(14)
-          .fontColor(this.colors.textSecondary)
-        Button('查询')
-          .fontSize(12)
-          .height(30)
-          .backgroundColor(this.colors.primary)
-          .onClick(() => this.refreshIpInfo())
-      }
-      .width('92%')
-      .padding(16)
-      .borderRadius(12)
-      .backgroundColor(this.colors.card)
-
-      // T8.1 连通性测试卡（M1 退出门）
-      Column({ space: 6 }) {
-        Row() {
-          Text('连通性测试 (generate_204)')
-            .fontSize(15)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.colors.textPrimary)
-            .layoutWeight(1)
-          Button('测试')
-            .fontSize(12)
-            .height(30)
-            .backgroundColor('#07C160')
-            .onClick(() => this.testConnectivity())
+            .width('100%')
+            Row() {
+              Text('累计: ↓ ' + this.downTotal + '  ↑ ' + this.upTotal)
+                .fontSize(12)
+                .fontColor(this.colors.textSecondary)
+            }
+            .width('100%')
+            // T5.3b 实时流量波形（Canvas，P3-1 宽度自适应容器）
+            Canvas(this.canvasCtx)
+              .width('100%')
+              .height(90)
+              .margin({ top: 8 })
+              .onAreaChange((_old: Area, newArea: Area) => {
+                this.canvasW = Number(newArea.width);
+                this.canvasH = Number(newArea.height);
+                this.drawTrafficGraph();
+              })
+              .onReady(() => {
+                if (this.canvasCtx) {
+                  this.drawTrafficGraph();
+                }
+              })
+          }
         }
-        .width('100%')
-        Text(this.testResult)
-          .fontSize(12)
-          .fontColor(this.testResult.startsWith('204 测试: HTTP 204') ? '#07C160' : this.colors.textSecondary)
-      }
-      .width('92%')
-      .padding(16)
-      .borderRadius(12)
-      .backgroundColor(this.colors.card)
+
+        // UI 2.0 工具行 1：当前代理（点击刷新）
+        GlassCard({ radius: ThemeDimen.RadiusRow, marginH: ThemeDimen.PagePad, pressable: true, action: () => this.refreshCurrentProxy() }) {
+          Row({ space: 8 }) {
+            AppIcon({ name: AppIconName.Selector, iconSize: 16, color: this.colors.primary })
+            Text($r('app.string.current_proxy'))
+              .fontSize(14)
+              .fontColor(this.colors.textPrimary)
+              .layoutWeight(1)
+            Text(this.currentProxy)
+              .fontSize(13)
+              .fontColor(this.colors.primary)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+            AppIcon({ name: AppIconName.ChevronRight, iconSize: 13, color: this.colors.textSecondary })
+          }
+          .width('100%')
+        }
+
+        // UI 2.0 工具行 2：本地出口 IP
+        GlassCard({ radius: ThemeDimen.RadiusRow, marginH: ThemeDimen.PagePad }) {
+          Row({ space: 8 }) {
+            AppIcon({ name: AppIconName.Logo, iconSize: 16, color: this.colors.primary })
+            Text('本地出口 IP')
+              .fontSize(14)
+              .fontColor(this.colors.textPrimary)
+              .layoutWeight(1)
+            Text(this.ipInfo === '' ? '--' : this.ipInfo)
+              .fontSize(13)
+              .fontColor(this.colors.textSecondary)
+            Button('查询')
+              .fontSize(12)
+              .height(30)
+              .backgroundColor(this.colors.primary)
+              .onClick(() => this.refreshIpInfo())
+          }
+          .width('100%')
+        }
+
+        // UI 2.0 工具行 3：连通性测试（M1 退出门）
+        GlassCard({ radius: ThemeDimen.RadiusRow, marginH: ThemeDimen.PagePad }) {
+          Column({ space: 6 }) {
+            Row({ space: 8 }) {
+              AppIcon({ name: AppIconName.UrlTest, iconSize: 16, color: this.colors.success })
+              Text('连通性测试 (generate_204)')
+                .fontSize(14)
+                .fontColor(this.colors.textPrimary)
+                .layoutWeight(1)
+              Button('测试')
+                .fontSize(12)
+                .height(30)
+                .backgroundColor(this.colors.success)
+                .onClick(() => this.testConnectivity())
+            }
+            .width('100%')
+            Text(this.testResult)
+              .fontSize(12)
+              .fontColor(this.testResult.startsWith('204 测试: HTTP 204') ? this.colors.success : this.colors.textSecondary)
+          }
+        }
       }
       .width('100%')
       .backgroundColor(this.colors.background)
@@ -625,11 +632,12 @@ export struct HomePage {
   @Builder
   modeBtn(modeVal: string, labelKey: string) {
     Text($r('app.string.' + labelKey))
-      .fontSize(12)
+      .fontSize(13)
+      .fontWeight(this.mode === modeVal ? FontWeight.Medium : FontWeight.Normal)
       .fontColor(this.mode === modeVal ? '#FFFFFF' : this.colors.textSecondary)
-      .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-      .borderRadius(12)
-      .backgroundColor(this.mode === modeVal ? this.colors.primary : this.colors.background)
+      .padding({ left: 18, right: 18, top: 8, bottom: 8 })
+      .borderRadius(999)
+      .backgroundColor(this.mode === modeVal ? this.colors.primary : Color.Transparent)
       .onClick(() => this.setMode(modeVal))
   }
 }
