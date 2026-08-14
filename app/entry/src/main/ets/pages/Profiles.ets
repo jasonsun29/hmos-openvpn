@@ -314,7 +314,7 @@ export struct ProfilesPage {
             Row() {
               Column({ space: 4 }) {
                 Text(p.name ?? p.id)
-                  .fontSize(15)
+                  .fontSize(14)
                   .fontWeight(this.activeId === p.id ? FontWeight.Bold : FontWeight.Normal)
                   .fontColor(this.activeId === p.id ? this.colors.primary : this.colors.textPrimary)
                   .maxLines(1)
@@ -346,16 +346,16 @@ export struct ProfilesPage {
               Button() {
                 AppIcon({ name: AppIconName.Edit, iconSize: 14, color: this.colors.primary })
               }
-              .width(32)
-              .height(32)
+              .width(28)
+              .height(28)
               .backgroundColor(this.colors.primarySoft)
               .borderRadius(8)
               .onClick(() => this.editProfile(p))
               Button() {
                 AppIcon({ name: AppIconName.Upload, iconSize: 14, color: this.colors.textPrimary })
               }
-              .width(32)
-              .height(32)
+              .width(28)
+              .height(28)
               .backgroundColor(this.colors.glassCard)
               .borderRadius(8)
               .margin({ left: 6 })
@@ -363,8 +363,8 @@ export struct ProfilesPage {
               Button() {
                 AppIcon({ name: AppIconName.Qrcode, iconSize: 14, color: this.colors.textPrimary })
               }
-              .width(32)
-              .height(32)
+              .width(28)
+              .height(28)
               .backgroundColor(this.colors.glassCard)
               .borderRadius(8)
               .margin({ left: 6 })
@@ -372,15 +372,15 @@ export struct ProfilesPage {
               Button() {
                 AppIcon({ name: AppIconName.Trash, iconSize: 14, color: this.colors.danger })
               }
-              .width(32)
-              .height(32)
+              .width(28)
+              .height(28)
               .backgroundColor(this.colors.danger + '1A')
               .borderRadius(8)
               .margin({ left: 6 })
               .onClick(() => this.deleteProfile(p))
             }
             .width('100%')
-            .padding(16)
+            .padding(12)
             .borderRadius(ThemeDimen.RadiusRow)
             .backgroundColor(this.colors.glassCard)
             .backgroundBlurStyle(BlurStyle.Thin)

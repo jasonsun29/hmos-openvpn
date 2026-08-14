@@ -449,29 +449,23 @@ export struct HomePage {
           .width('100%')
           .padding({ left: 24, top: 20, bottom: 4 })
 
-        // UI 2.0 Hero 状态卡（玻璃大卡：状态大字 + 大开关 + 当前代理）
-        GlassCard({ radius: 24, marginH: ThemeDimen.PagePad }) {
-          Column({ space: 12 }) {
+        // UI 2.0 Hero 状态卡（紧凑两行：状态点+状态 与 当前代理）
+        GlassCard({ radius: ThemeDimen.RadiusCard, marginH: ThemeDimen.PagePad }) {
+          Column({ space: 8 }) {
             Row() {
-              Text($r('app.string.vpn_status'))
-                .fontSize(13)
-                .fontColor(this.colors.textSecondary)
-              Blank()
-              Circle()
-                .width(8)
-                .height(8)
-                .fill(this.vpnOn ? this.colors.success : this.colors.textSecondary)
-            }
-            .width('100%')
-            Row() {
-              Text(this.vpnState.startsWith('vpn_') ? $r('app.string.' + this.vpnState) : this.vpnState)
-                .fontSize(28)
-                .fontWeight(FontWeight.Bold)
-                .fontColor(this.vpnOn ? this.colors.success : this.colors.textPrimary)
+              Row({ space: 8 }) {
+                Circle()
+                  .width(7)
+                  .height(7)
+                  .fill(this.vpnOn ? this.colors.success : this.colors.textSecondary)
+                Text(this.vpnState.startsWith('vpn_') ? $r('app.string.' + this.vpnState) : this.vpnState)
+                  .fontSize(20)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(this.vpnOn ? this.colors.success : this.colors.textPrimary)
+              }
               Blank()
               Toggle({ type: ToggleType.Switch, isOn: this.vpnOn })
                 .selectedColor(this.colors.success)
-                .scale({ x: 1.15, y: 1.15 })
                 .onChange((isOn: boolean) => {
                   // 防抖：toggleVpn 执行期间忽略重复触发（Toggle 可能触发多次 onChange）
                   if (this.toggling) {
@@ -492,12 +486,11 @@ export struct HomePage {
             .width('100%')
             Row() {
               Text($r('app.string.current_proxy'))
-                .fontSize(13)
+                .fontSize(12)
                 .fontColor(this.colors.textSecondary)
               Blank()
               Text(this.currentProxy)
-                .fontSize(13)
-                .fontWeight(FontWeight.Medium)
+                .fontSize(12)
                 .fontColor(this.colors.primary)
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -522,29 +515,29 @@ export struct HomePage {
           Column({ space: 8 }) {
             Row() {
               Text($r('app.string.traffic'))
-                .fontSize(15)
+                .fontSize(14)
                 .fontWeight(FontWeight.Medium)
                 .fontColor(this.colors.textPrimary)
               Blank()
               Text('↓ ' + this.formatRate(this.downRate))
-                .fontSize(13)
+                .fontSize(12)
                 .fontColor(this.colors.success)
               Text('  ↑ ' + this.formatRate(this.upRate))
-                .fontSize(13)
+                .fontSize(12)
                 .fontColor(this.colors.primary)
             }
             .width('100%')
             Row() {
               Text('累计: ↓ ' + this.downTotal + '  ↑ ' + this.upTotal)
-                .fontSize(12)
+                .fontSize(11)
                 .fontColor(this.colors.textSecondary)
             }
             .width('100%')
             // T5.3b 实时流量波形（Canvas，P3-1 宽度自适应容器）
             Canvas(this.canvasCtx)
               .width('100%')
-              .height(90)
-              .margin({ top: 8 })
+              .height(72)
+              .margin({ top: 4 })
               .onAreaChange((_old: Area, newArea: Area) => {
                 this.canvasW = Number(newArea.width);
                 this.canvasH = Number(newArea.height);
@@ -563,11 +556,11 @@ export struct HomePage {
           Row({ space: 8 }) {
             AppIcon({ name: AppIconName.Selector, iconSize: 16, color: this.colors.primary })
             Text($r('app.string.current_proxy'))
-              .fontSize(14)
+              .fontSize(13)
               .fontColor(this.colors.textPrimary)
               .layoutWeight(1)
             Text(this.currentProxy)
-              .fontSize(13)
+              .fontSize(12)
               .fontColor(this.colors.primary)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -581,11 +574,11 @@ export struct HomePage {
           Row({ space: 8 }) {
             AppIcon({ name: AppIconName.Logo, iconSize: 16, color: this.colors.primary })
             Text('本地出口 IP')
-              .fontSize(14)
+              .fontSize(13)
               .fontColor(this.colors.textPrimary)
               .layoutWeight(1)
             Text(this.ipInfo === '' ? '--' : this.ipInfo)
-              .fontSize(13)
+              .fontSize(12)
               .fontColor(this.colors.textSecondary)
             Button('查询')
               .fontSize(12)
@@ -602,7 +595,7 @@ export struct HomePage {
             Row({ space: 8 }) {
               AppIcon({ name: AppIconName.UrlTest, iconSize: 16, color: this.colors.success })
               Text('连通性测试 (generate_204)')
-                .fontSize(14)
+                .fontSize(13)
                 .fontColor(this.colors.textPrimary)
                 .layoutWeight(1)
               Button('测试')
@@ -613,7 +606,7 @@ export struct HomePage {
             }
             .width('100%')
             Text(this.testResult)
-              .fontSize(12)
+              .fontSize(11)
               .fontColor(this.testResult.startsWith('204 测试: HTTP 204') ? this.colors.success : this.colors.textSecondary)
           }
         }
@@ -632,10 +625,10 @@ export struct HomePage {
   @Builder
   modeBtn(modeVal: string, labelKey: string) {
     Text($r('app.string.' + labelKey))
-      .fontSize(13)
+      .fontSize(12)
       .fontWeight(this.mode === modeVal ? FontWeight.Medium : FontWeight.Normal)
       .fontColor(this.mode === modeVal ? '#FFFFFF' : this.colors.textSecondary)
-      .padding({ left: 18, right: 18, top: 8, bottom: 8 })
+      .padding({ left: 14, right: 14, top: 6, bottom: 6 })
       .borderRadius(999)
       .backgroundColor(this.mode === modeVal ? this.colors.primary : Color.Transparent)
       .onClick(() => this.setMode(modeVal))

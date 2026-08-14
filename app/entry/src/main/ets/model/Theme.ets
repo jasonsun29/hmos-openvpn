@@ -55,13 +55,13 @@ export class ThemeColors {
 
 /** UI 2.0 尺寸 token：圆角/留白/间距三级 */
 export class ThemeDimen {
-  static readonly RadiusCard = 20;   // 大卡片圆角
+  static readonly RadiusCard = 18;   // 大卡片圆角
   static readonly RadiusRow = 16;    // 行卡片圆角
   static readonly RadiusItem = 12;   // 内部元素
   static readonly PagePad = 16;      // 页面边距
-  static readonly CardPad = 16;      // 卡片内 padding
+  static readonly CardPad = 12;      // 卡片内 padding
   static readonly GapS = 8;          // 间距：小
-  static readonly GapM = 12;         // 间距：中
+  static readonly GapM = 10;         // 间距：中
   static readonly GapL = 16;         // 间距：大
 }
 

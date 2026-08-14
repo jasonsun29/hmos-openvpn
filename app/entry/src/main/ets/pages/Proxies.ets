@@ -340,7 +340,7 @@ export struct ProxiesPage {
                 AppIcon({ name: this.groupIcon(group.type), iconSize: 16, color: this.colors.textPrimary })
                   .margin({ right: 8 })
                 Text(group.name)
-                  .fontSize(15)
+                  .fontSize(14)
                   .fontWeight(FontWeight.Medium)
                   .fontColor(this.colors.textPrimary)
                   .layoutWeight(1)
@@ -412,7 +412,7 @@ export struct ProxiesPage {
                     .width('100%')
                   }
                   .width('100%')
-                  .height(44)
+                  .height(40)
                   .padding({ left: 24, right: 16 })
                   .backgroundColor(p.name === group.now ? this.colors.primarySoft : Color.Transparent)
                   .borderRadius(ThemeDimen.RadiusItem)
@@ -422,7 +422,7 @@ export struct ProxiesPage {
               }
             }
             .width('100%')
-            .padding(12)
+            .padding(10)
             .borderRadius(ThemeDimen.RadiusRow)
             .backgroundColor(this.colors.glassCard)
             .backgroundBlurStyle(BlurStyle.Thin)
