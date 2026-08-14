@@ -15,7 +15,7 @@
  *   - VPN 在线时叠加 RPC 数据（now/延迟），选择即时生效
  *   - 全局模式端点 = 平铺的 直连 + 全部组 + 全部节点（单组展示）
  */
-import { ThemeColors } from '../model/Theme';
+import { ThemeColors, ThemeDimen } from '../model/Theme';
 import { AppService } from '../service/AppService';
 import { ProxyGroup, ProxyMode, Proxy, ProxyType, SocketProxyService, SelectedMapStore,
   ConfigReader, YamlConfigView } from 'proxy_core';
@@ -272,17 +272,18 @@ export struct ProxiesPage {
   build() {
     Column() {
       Text($r('app.string.nav_proxies'))
-        .fontSize(22)
+        .fontSize(28)
         .fontWeight(FontWeight.Bold)
         .fontColor(this.colors.textPrimary)
         .width('100%')
-        .padding({ left: 24, top: 16, bottom: 8 })
+        .padding({ left: 24, top: 20, bottom: 8 })
 
       // 顶部工具行
-      Row() {
+      Row({ space: ThemeDimen.GapS }) {
         Button(this.testing ? '测速中...' : '全部测速')
           .fontSize(13)
           .height(36)
+          .borderRadius(18)
           .backgroundColor(this.testing ? '#8A8A8A' : this.colors.primary)
           .onClick(() => {
             console.log('Proxies', 'testAll click, testing=' + this.testing);
@@ -291,26 +292,43 @@ export struct ProxiesPage {
         Button('刷新')
           .fontSize(13)
           .height(36)
-          .backgroundColor(this.colors.textSecondary)
+          .borderRadius(18)
+          .fontColor(this.colors.textPrimary)
+          .backgroundColor(this.colors.glassCard)
+          .backgroundBlurStyle(BlurStyle.Thin)
           .onClick(() => this.loadGroups())
       }
       .width('92%')
-      .margin({ bottom: 4 })
+      .justifyContent(FlexAlign.Start)
+      .margin({ bottom: ThemeDimen.GapS })
 
-      // P3 重构：模式/在线状态提示
-      Text(this.isGlobalMode ? '全局模式 · 全部流量走所选端点' :
-        (this.isDirectMode ? '直连模式 · 所有流量不走代理' : '规则模式 · 按订阅规则分流'))
-        .fontSize(11)
-        .fontColor(this.colors.textSecondary)
-        .width('92%')
-        .margin({ bottom: 4 })
-      if (!this.online) {
-        Text('VPN 离线 · 可浏览选择，开启 VPN 后生效')
-          .fontSize(11)
-          .fontColor('#FF9500')
-          .width('92%')
-          .margin({ bottom: 4 })
+      // P3 重构：模式/在线状态提示（UI 2.0 胶囊 chips）
+      Row() {
+        Row({ space: 4 }) {
+          AppIcon({ name: AppIconName.Selector, iconSize: 11, color: this.colors.primary })
+          Text(this.isGlobalMode ? '全局模式 · 全部流量走所选端点' :
+            (this.isDirectMode ? '直连模式 · 所有流量不走代理' : '规则模式 · 按订阅规则分流'))
+            .fontSize(11)
+            .fontColor(this.colors.primary)
+        }
+        .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+        .borderRadius(999)
+        .backgroundColor(this.colors.primarySoft)
+        if (!this.online) {
+          Row({ space: 4 }) {
+            AppIcon({ name: AppIconName.Warn, iconSize: 11, color: this.colors.warning })
+            Text('VPN 离线 · 可浏览选择，开启 VPN 后生效')
+              .fontSize(11)
+              .fontColor(this.colors.warning)
+          }
+          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+          .borderRadius(999)
+          .backgroundColor(this.colors.warning + '1A')
+        }
       }
+      .width('92%')
+      .justifyContent(FlexAlign.Start)
+      .margin({ bottom: ThemeDimen.GapS })
 
       // 代理组树
       List({ space: 8 }) {
@@ -329,8 +347,11 @@ export struct ProxiesPage {
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                 Text(this.formatDelay(this.nowDelay(group)))
-                  .fontSize(13)
-                  .fontColor(this.colors.textSecondary)
+                  .fontSize(11)
+                  .fontColor(this.latencyColor(this.nowDelay(group)))
+                  .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                  .borderRadius(999)
+                  .backgroundColor(this.latencyBg(this.nowDelay(group)))
                   .margin({ right: 8 })
                 // 单组测速按钮
                 Button() {
@@ -378,8 +399,11 @@ export struct ProxiesPage {
                         .maxLines(1)
                         .textOverflow({ overflow: TextOverflow.Ellipsis })
                       Text(this.formatDelay(p.latency))
-                        .fontSize(12)
-                        .fontColor(p.latency !== undefined && p.latency > 0 ? '#07C160' : this.colors.textSecondary)
+                        .fontSize(11)
+                        .fontColor(this.latencyColor(p.latency))
+                        .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                        .borderRadius(999)
+                        .backgroundColor(this.latencyBg(p.latency))
                         .margin({ right: 8 })
                       if (p.name === group.now) {
                         AppIcon({ name: AppIconName.Check, iconSize: 14, color: this.colors.primary })
@@ -390,8 +414,8 @@ export struct ProxiesPage {
                   .width('100%')
                   .height(44)
                   .padding({ left: 24, right: 16 })
-                  .backgroundColor(p.name === group.now ? this.colors.card : Color.Transparent)
-                  .borderRadius(6)
+                  .backgroundColor(p.name === group.now ? this.colors.primarySoft : Color.Transparent)
+                  .borderRadius(ThemeDimen.RadiusItem)
                   .type(ButtonType.Normal)
                   .onClick(() => this.changeNode(group, p.name))
                 }, (p: Proxy) => p.name + p.latency + (p.name === group.now ? '_sel' : ''))
@@ -399,8 +423,9 @@ export struct ProxiesPage {
             }
             .width('100%')
             .padding(12)
-            .borderRadius(12)
-            .backgroundColor(this.colors.card)
+            .borderRadius(ThemeDimen.RadiusRow)
+            .backgroundColor(this.colors.glassCard)
+            .backgroundBlurStyle(BlurStyle.Thin)
           }
         }, (group: ProxyGroup) => group.name)
       }
@@ -456,6 +481,18 @@ export struct ProxiesPage {
       case 'Relay': return AppIconName.Relay;
       default: return AppIconName.DefaultGroup;
     }
+  }
+
+  // UI 2.0 延迟胶囊配色：绿 <300 / 橙 <800 / 红超时 / 灰未测
+  latencyColor(latency: number | undefined): string {
+    if (latency === undefined || latency <= 0) return this.colors.textSecondary;
+    if (latency < 300) return this.colors.success;
+    if (latency < 800) return this.colors.warning;
+    return this.colors.danger;
+  }
+
+  latencyBg(latency: number | undefined): string {
+    return this.latencyColor(latency) + '1A';
   }
 
   formatDelay(latency: number | undefined): string {
