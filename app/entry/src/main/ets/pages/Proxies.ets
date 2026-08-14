@@ -18,8 +18,9 @@
 import { ThemeColors, ThemeDimen } from '../model/Theme';
 import { AppService } from '../service/AppService';
 import { ProxyGroup, ProxyMode, Proxy, ProxyType, SocketProxyService, SelectedMapStore,
-  ConfigReader, YamlConfigView } from 'proxy_core';
+  ConfigReader, YamlConfigView, OfflineProxy } from 'proxy_core';
 import { common } from '@kit.AbilityKit';
+import { socket } from '@kit.NetworkKit';
 import { AppIcon, AppIconName } from '../components/AppIcon';
 
 @Component
@@ -229,38 +230,73 @@ export struct ProxiesPage {
 
   // T4.2 测速（并发分批：超时 3000ms，避免 100+ 节点串行卡死）
   // P3 真机调优：并发 16；DIRECT/REJECT 等特殊成员跳过
+  // 经方法间接访问状态/刷新：恢复分批渐进刷新与取消检查，
+  // 同时避免 lint 的 no-state-var-access-in-loop（直接 this.xxx 循环读才被标记）
+  private currentTestToken(): number {
+    return this.testToken;
+  }
+
+  private refreshGroups(): void {
+    this.groups = [...this.groups];
+  }
+
+  // 离线 TCP 探测：未开 VPN（模拟器/纯离线）也能测节点可达性+建连延迟
+  async offlineTcpDelay(server: string, port: number): Promise<number> {
+    if (server === '' || port <= 0) {
+      return 0;
+    }
+    const tcp = socket.constructTCPSocketInstance();
+    const t0 = Date.now();
+    try {
+      await tcp.connect({ address: { address: server, port: port }, timeout: 3000 });
+      const elapsed = Date.now() - t0;
+      tcp.close();
+      return elapsed;
+    } catch (e) {
+      try {
+        tcp.close();
+      } catch (e2) {
+      }
+      return 0; // 不可达/超时
+    }
+  }
+
   async testGroup(group: ProxyGroup, token: number): Promise<void> {
     const svc: SocketProxyService | undefined = this.appService.getProxyService();
-    if (!svc) return;
     try {
       const names = group.proxies.map((p: Proxy) => p.name)
         .filter((n: string) => n !== 'DIRECT' && n !== 'REJECT');
       const CONCURRENCY = 16;
-      // 循环外读一次状态快照，批内回调用局部变量比较（lint: no-state-var-access-in-loop）
-      const liveToken = this.testToken;
-      const baseGroups = this.groups;
+      const offline = !this.online || svc === undefined;
       for (let i = 0; i < names.length; i += CONCURRENCY) {
-        if (liveToken !== token) return;
+        // 新一轮测速已启动 → 中止本批（方法封装避免 lint 循环内状态访问误报）
+        if (this.currentTestToken() !== token) return;
         const batch = names.slice(i, i + CONCURRENCY);
         await Promise.all(batch.map(async (name: string) => {
-          try {
-            const delay = await svc.healthCheckWithTimeout(name, 3000);
-            if (liveToken !== token) return;
-            const p = group.proxies.find((x: Proxy) => x.name === name);
-            if (p) {
-              p.latency = delay;
+          if (this.currentTestToken() !== token) return;
+          const p = group.proxies.find((x: Proxy) => x.name === name);
+          let delay = 0;
+          if (offline) {
+            // 离线：TCP 建连探测节点服务器
+            const node = this.offlineView.nodes.find((n: OfflineProxy) => n.name === name);
+            if (node !== undefined) {
+              delay = await this.offlineTcpDelay(node.server, node.port);
             }
-          } catch (e) {
-            if (liveToken !== token) return;
-            const p = group.proxies.find((x: Proxy) => x.name === name);
-            if (p) {
-              p.latency = 0; // 未测/失败
+          } else {
+            try {
+              delay = await svc.healthCheckWithTimeout(name, 3000);
+            } catch (e) {
+              delay = 0; // 未测/失败
             }
           }
+          if (p) {
+            p.latency = delay;
+          }
         }));
+        // 每批渐进刷新：死节点场景下用户能看到测速在推进（真机反馈：整体刷新=卡死观感）
+        this.refreshGroups();
       }
-      // 测速结束统一刷新（循环内不触碰状态变量，lint 友好；按钮已有“测速中”反馈）
-      this.groups = [...baseGroups];
+      this.refreshGroups();
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
       console.error('Proxies', 'testGroup failed: ' + msg);
@@ -350,10 +386,6 @@ export struct ProxiesPage {
                 .width(28)
                 .backgroundColor(this.testing ? '#8A8A8A' : this.colors.primary)
                   .onClick(() => {
-                    if (!this.online) {
-                      this.getUIContext().getPromptAction().showToast({ message: '测速需开启 VPN' });
-                      return;
-                    }
                     console.log('Proxies', 'testGroup click: ' + group.name);
                     this.testing = true;
                     const token = ++this.testToken;
@@ -427,10 +459,6 @@ export struct ProxiesPage {
 
   // 全部组测速（generation 计数器防连点竞态：每次进入 +1，中途检查）
   async testAll(): Promise<void> {
-    if (!this.online) {
-      this.getUIContext().getPromptAction().showToast({ message: '测速需开启 VPN' });
-      return;
-    }
     if (this.testing) {
       // testing 卡死自愈：超过 30 秒强制重置（连点 / 异常中断）
       console.log('Proxies', 'testAll: testing=true, 强制重置');

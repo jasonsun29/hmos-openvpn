@@ -27,6 +27,9 @@ export interface OfflineGroup {
 export interface OfflineProxy {
   name: string;
   type: string;
+  // 离线测速用：直连节点服务器测 TCP 建连延迟（未开 VPN/模拟器可用）
+  server: string;
+  port: number;
 }
 
 export class YamlConfigView {
@@ -68,7 +71,12 @@ export class ConfigReader {
         if (name === undefined || name === '') {
           return;
         }
-        view.nodes.push({ name: name, type: (p['type'] as string) ?? '' });
+        view.nodes.push({
+          name: name,
+          type: (p['type'] as string) ?? '',
+          server: (p['server'] as string) ?? '',
+          port: Number(p['port'] ?? 0)
+        });
       });
     } catch (e) {
       console.error('ConfigReader', 'parse failed: ' + String(e));
