@@ -168,3 +168,25 @@
 - vpnOn 落盘权威化：ClashVpnAbility onCreate/onDestroy 写 vpnOn（VPN 进程存活=权威），Home 心跳复位同步落盘 → 服务卡片不再假显示"已连接"
 
 **已知限制**：订阅节点全部死亡（无法演示真实代理出口，路由语义已由日志证明）；展开态侧栏待用户展开设备复验（widefold 模拟器同代码路径已过）。
+
+## UI 2.0 改版：HarmonyOS 原生质感（2026-08-15，规划 docs/ui-redesign-plan.md）
+
+**方向（用户拍板）**：毛玻璃卡片/系统级动效/圆润留白，像系统应用一样精致；全部 8 页 + 服务卡片完整改版；**页面不再出现任何 emoji**（全部换 SymbolGlyph 系统图标）。
+
+**已完成（4 个 commit：a96f533/62b6e3e/94ac569/c55a325）**：
+- 设计系统：Theme 系统灰分层（#F2F3F5/#1C1C1E）+ 玻璃 token + 语义色 + primarySoft + ThemeDimen；GlassCard（毛玻璃+按压反馈，marginH/action 参数化——尾随闭包后不能链式修饰符，ArkTS 实测）+ SectionHeader
+- AppIcon：SymbolGlyph 统一封装，资源名逐一对照官方 SDK 符号表（toolchains/id_defined.json，4032 个）核实；@Prop 命名坑：size/padding 与内置属性方法冲突 → iconSize/cardPadding
+- 全部 emoji 清除：MainPage 导航 8 图标（house/square_grid_2x2/square_stack_3d/gearshape/arrow_left_arrow_right/list_number/doc/film，选中 house_fill）+ 组类型图标 + 状态图标 + ⚡/✓/▸/▾
+- Home：Hero 玻璃大卡（28fp 状态 + 状态点 + 1.15x 开关 + 当前代理）、模式胶囊分段、流量玻璃卡、工具行×3（图标+箭头）
+- Proxies：胶囊按钮、模式/离线 chips、玻璃组卡、延迟胶囊按值配色（绿<300/橙<800/红超时）、primarySoft 选中底
+- Profiles：玻璃导入容器、订阅卡玻璃化、操作按钮图标化（方形 SymbolGlyph 按钮）、已激活徽章
+- Settings 全卡玻璃化；Connections/Rules/Logs/Unlock 标题 28fp+玻璃卡；侧栏毛玻璃（Regular 模糊）；VpnCard 状态点+圆角 20
+- 验证：真机折叠态 7 页走查无崩溃 + VPN 开关/端点选择/已激活徽章回归通过；模拟器展开态布局正常
+
+**ArkTS 经验（新增）**：
+- 尾随闭包（@BuilderParam）后不能链式调 .margin/.onClick 等修饰符 → 参数化进组件（marginH/action）
+- 自定义组件 @Prop 不能叫 size/padding（与内置通用属性方法同名编译报错）
+- ListItem 内嵌套自定义组件尾随闭包有解析问题 → 组卡片直接用玻璃样式（同 token），不套 GlassCard
+- 字符串 % 格式化与 ArkTS 代码里的 '100%' 冲突（python 脚本注意）
+
+**剩余**：视觉细节微调（字体/间距/暗色核对）待用户肉眼验收；模拟器 phone 紧凑态待 P3Verify 重启抽查（真机折叠态已过）。
