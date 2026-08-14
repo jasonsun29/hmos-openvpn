@@ -91,6 +91,8 @@ export struct HomePage {
     if (this.vpnState === '') {
       this.vpnState = 'vpn_disconnected';
     }
+    // P3 硬性需求：启动即恢复持久化模式（上次选什么，重启后还是什么）
+    this.refreshMode();
     // 恢复轮询（如果 VPN 还开着）
     if (this.vpnOn) {
       this.startTrafficPoll();
@@ -101,6 +103,8 @@ export struct HomePage {
   }
 
   onPageShow(): void {
+    // P3 硬性需求：切回首页时同步持久化模式
+    this.refreshMode();
     // P1-11 页面进入前台：与退后台时可能 socket 断开的场景，强制刷新
     if (this.vpnOn) {
       this.refreshCurrentProxy();

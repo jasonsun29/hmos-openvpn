@@ -33,23 +33,50 @@ export struct RulesPage {
   @State stats: string | Resource = '';
   // P2-3 实时命中统计
   @State hitStats: Array<RuleHitStat> = [];
+  // 模拟器验证修复：Navigation 栈下 aboutToDisappear 不触发 → 页面切走时 2s 轮询不停
+  @StorageLink('vpnOn') vpnOn: boolean = false;
+  @StorageLink('navPageShown') @Watch('onNavPageShownEvt') navPageShown: string = '';
+  @StorageLink('navPageHidden') @Watch('onNavPageHiddenEvt') navPageHidden: string = '';
   private appService: AppService = AppService.getInstance();
   private hitRefreshTimer: number = -1;
 
-  aboutToAppear(): void {
-    this.loadRules();
+  onNavPageShownEvt(): void {
+    if (this.navPageShown.startsWith('Rules')) {
+      this.startHitPoll();
+    }
+  }
+
+  onNavPageHiddenEvt(): void {
+    if (this.navPageHidden.startsWith('Rules')) {
+      this.stopHitPoll();
+    }
+  }
+
+  startHitPoll(): void {
+    if (this.hitRefreshTimer !== -1) {
+      return;
+    }
     this.loadHitStats();
-    // 每 2 秒刷新一次实时命中统计（避免过于频繁的 RPC）
     this.hitRefreshTimer = setInterval(() => {
       this.loadHitStats();
     }, 2000);
   }
 
-  aboutToDisappear(): void {
+  stopHitPoll(): void {
     if (this.hitRefreshTimer !== -1) {
       clearInterval(this.hitRefreshTimer);
       this.hitRefreshTimer = -1;
     }
+  }
+
+  aboutToAppear(): void {
+    this.loadRules();
+    this.loadHitStats();
+    this.startHitPoll();
+  }
+
+  aboutToDisappear(): void {
+    this.stopHitPoll();
   }
 
   async loadRules(): Promise<void> {
@@ -114,6 +141,12 @@ export struct RulesPage {
 
   // P2-3 实时规则命中统计：调 getRequestList 拿所有 ConnectionInfo，按 rule 字段分组计数
   async loadHitStats(): Promise<void> {
+    // VPN 未启动时无命中数据，静默停止轮询
+    if (!this.vpnOn) {
+      this.stopHitPoll();
+      this.hitStats = [];
+      return;
+    }
     const svc: SocketProxyService | undefined = this.appService.getProxyService();
     if (!svc) {
       this.hitStats = [];

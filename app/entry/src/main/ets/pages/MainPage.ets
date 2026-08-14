@@ -193,13 +193,16 @@ struct MainPage {
       .alignItems(this.compact ? HorizontalAlign.Center : HorizontalAlign.Start)
     }
     .mode(NavigationMode.Split)
-    .hideNavBar(true)
+    // 注意：不能用 hideNavBar(true)——会把 Split 模式的菜单栏（我们的侧栏）整个隐藏
+    .navBarWidth(this.compact ? 64 : 180)
     .navDestination(this.pageMap)
     .width('100%')
     .height('100%')
     .onAreaChange((_old: Area, newArea: Area) => {
       // 折叠态阈值：宽度 < 640vp 视为折叠窄屏
-      const isCompact = Number(newArea.width) < 640;
+      const w = Number(newArea.width);
+      // 阈值 480vp：Pura 展开态(~530vp)保持完整侧栏；折叠/窄屏(~360vp)走图标栏
+      const isCompact = w < 480;
       if (isCompact !== this.compact) {
         this.compact = isCompact;
       }

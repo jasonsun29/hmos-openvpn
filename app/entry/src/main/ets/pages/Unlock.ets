@@ -84,7 +84,23 @@ export struct UnlockPage {
         this.setResult(key, 'blocked', 'HTTP ' + code);
       }
     } catch (e) {
-      const msg: string = (e instanceof Error) ? e.message : String(e);
+      // BusinessError 不是 Error 实例：需从对象字段提取 message（否则显示 [object Object]）
+      let msg = '';
+      if (e instanceof Error) {
+        msg = e.message;
+      } else if (typeof e === 'object' && e !== null) {
+        const be = e as Record<string, Object>;
+        const m = be['message'];
+        if (typeof m === 'string') {
+          msg = m;
+        }
+      }
+      if (msg === '') {
+        msg = JSON.stringify(e);
+      }
+      if (msg.length > 28) {
+        msg = msg.substring(0, 28) + '…';
+      }
       this.setResult(key, 'failed', msg);
     }
   }

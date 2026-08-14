@@ -317,8 +317,12 @@ export class SocketProxyService implements IClashManager {
       }
       if (!await fileIo.access(socketPath))
       {
-        // P0-2 toast 限频
-        ToastThrottler.show(SocketProxyService.promptAction, "VPN服务启动失败")
+        // P0-2 toast 限频：只对用户主动启停（startClash/stopClash）提示；
+        // 被动查询（连接/规则/流量轮询等）在 VPN 未启动时静默失败，
+        // 避免页面轮询把"启动失败"toast 反复弹出（模拟器/未启动场景）
+        if (method == ClashRpcType.startClash || method == ClashRpcType.stopClash) {
+          ToastThrottler.show(SocketProxyService.promptAction, "VPN服务启动失败")
+        }
         reject(new Error("VPN服务未启动"))
         return;
       }

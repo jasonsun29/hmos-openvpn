@@ -17,24 +17,57 @@ export struct ConnectionsPage {
   @State totalDown: number = 0;
   // P3-6 搜索/过滤
   @State searchText: string = '';
+  // 模拟器验证修复：Navigation 栈下 aboutToDisappear 不触发 → 页面切走时轮询不停，
+  // 每个 RPC 都失败（VPN 未启动）导致日志/toast 刷屏。改用 t44 导航广播 + vpnOn 自停。
+  @StorageLink('vpnOn') vpnOn: boolean = false;
+  @StorageLink('navPageShown') @Watch('onNavPageShownEvt') navPageShown: string = '';
+  @StorageLink('navPageHidden') @Watch('onNavPageHiddenEvt') navPageHidden: string = '';
   private appService: AppService = AppService.getInstance();
   private refreshTimer: number = -1;
 
-  aboutToAppear(): void {
+  onNavPageShownEvt(): void {
+    if (this.navPageShown.startsWith('Connections')) {
+      this.startPoll();
+    }
+  }
+
+  onNavPageHiddenEvt(): void {
+    if (this.navPageHidden.startsWith('Connections')) {
+      this.stopPoll();
+    }
+  }
+
+  startPoll(): void {
+    if (this.refreshTimer !== -1) {
+      return;
+    }
     this.refresh();
     this.refreshTimer = setInterval(() => {
       this.refresh();
     }, 1000);
   }
 
-  aboutToDisappear(): void {
+  stopPoll(): void {
     if (this.refreshTimer !== -1) {
       clearInterval(this.refreshTimer);
       this.refreshTimer = -1;
     }
   }
 
+  aboutToAppear(): void {
+    this.startPoll();
+  }
+
+  aboutToDisappear(): void {
+    this.stopPoll();
+  }
+
   async refresh(): Promise<void> {
+    // VPN 未启动时无数据可查，直接静默停止轮询
+    if (!this.vpnOn) {
+      this.stopPoll();
+      return;
+    }
     const svc: SocketProxyService | undefined = this.appService.getProxyService();
     if (!svc) return;
     try {

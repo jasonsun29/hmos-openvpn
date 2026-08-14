@@ -43,7 +43,9 @@ export struct ProxiesPage {
   private testToken: number = 0;
   private appService: AppService = AppService.getInstance();
   private offlineView: YamlConfigView = new YamlConfigView();
-  private isGlobalMode: boolean = false;
+  // P3 重构：模式指示必须响应式（private 字段不触发 UI 重渲染，导致指示器停留在初值）
+  @State isGlobalMode: boolean = false;
+  @State isDirectMode: boolean = false;
   // 持久化选择缓存（loadGroups 时从跨进程文件加载）
   private persistedMap: Record<string, string> = {};
 
@@ -66,8 +68,18 @@ export struct ProxiesPage {
       this.offlineView = await ConfigReader.read(context, activeId);
       this.persistedMap = await SelectedMapStore.load(context, activeId);
     }
-    const rawMode: string = AppStorage.get<string>('vpnMode') ?? 'global';
-    this.isGlobalMode = rawMode.toUpperCase() === ProxyMode.Global;
+    // P3 硬性需求：模式优先读 AppStorage（Home.setMode 写入），
+    // 缺失时回退持久化文件（进程重启后 AppStorage 为空）
+    let rawMode: string = AppStorage.get<string>('vpnMode') ?? '';
+    if (rawMode === '') {
+      rawMode = await SelectedMapStore.loadMode(context);
+    }
+    if (rawMode === '') {
+      rawMode = 'global';
+    }
+    this.isGlobalMode = rawMode.toUpperCase() === String(ProxyMode.Global).toUpperCase();
+    this.isDirectMode = rawMode.toUpperCase() === String(ProxyMode.Direct).toUpperCase();
+    console.log('Proxies', 'loadGroups rawMode=' + rawMode + ' isGlobalMode=' + this.isGlobalMode + ' isDirectMode=' + this.isDirectMode);
 
     const svc: SocketProxyService | undefined = this.appService.getProxyService();
     if (!svc || !this.vpnOn) {
@@ -285,7 +297,8 @@ export struct ProxiesPage {
       .margin({ bottom: 4 })
 
       // P3 重构：模式/在线状态提示
-      Text(this.isGlobalMode ? '全局模式 · 全部流量走所选端点' : '规则模式 · 按订阅规则分流')
+      Text(this.isGlobalMode ? '全局模式 · 全部流量走所选端点' :
+        (this.isDirectMode ? '直连模式 · 所有流量不走代理' : '规则模式 · 按订阅规则分流'))
         .fontSize(11)
         .fontColor(this.colors.textSecondary)
         .width('92%')

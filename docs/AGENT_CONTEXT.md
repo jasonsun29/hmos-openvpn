@@ -113,3 +113,43 @@
 
 
   - 工具资产：devecocli skills add 装了 3 个官方 skill 到 app/.claude/skills/（hmos-arkts-syntax-checker / hmos-arkts-knowledge-retriever / hmos-arkui-knowledge-retriever，含本地 linter-cli 与 docs 检索脚本），`devecocli docs search` 可查官方文档
+
+## 模拟器验证（2026-08-15，Pura X Max widefold 模拟器 127.0.0.1:5557 + P3Verify 手机模拟器 5555）
+
+**背景**：真机未连接时用 DevEco 模拟器验证 UI 层。widefold 展开态 2584×1828px（≈940vp，正好设计稿宽度）双态布局均可验；手机模拟器 359vp 验证紧凑态。**VPN/TUN 无法在模拟器验证**（无 VpnExtensionAbility 支持，toggle 后"请求授权..."挂起——模拟器限制，非 bug）。
+
+**验证通过项（19 项）**：
+- Navigation 双态布局：窄屏(<480vp)64vp 图标栏 / 宽屏完整带文字侧栏（阈值 640→480，navBarWidth 跟随）
+- 页面切换、状态保留（导航栈 + navPageShown/navPageHidden 广播）
+- Proxies 离线视图：空态（无订阅不崩溃）+ 完整配置态 + "VPN 离线"横幅 + 全局模式平铺端点列表（DIRECT/自动选择/桔子云/node-1..3）
+- 端点选择持久化：选"自动选择"→ selected_map.json 落盘 → 杀进程重启 → ✓ 标记保留（硬性需求 #1 ✓）
+- 模式持久化：rule/direct/global 三态跨重启恢复（Home refreshMode 启动调用）
+- URL 导入全链路（真实 HTTPS）：粘贴服务→下载→校验→入库→激活 ✓；SubUpdater 60s 自动更新 ✓
+- 解锁页：10 服务、真实 HTTP 状态码分类（403/404/失败/超时详情）
+- 设置页：主题色板 10 色点击持久化（theme_color prefs）、端口/DNS/TUN 单选、GeoX 卡片（上次更新: 今天）
+- 规则/连接/日志页渲染 + 空态文案
+- 编辑器 bindSheet、服务卡片全链路（表单中心索引→预览→添加桌面→渲染"VPN 未连接/直连模式"→点击启动应用）
+
+**模拟器限制（真机回归清单追加项）**：
+- ScanKit generateBarcode：报 "Emulator is not supported"（QR 生成需真机验证）
+- VPN 启动：无系统授权弹窗支持，startVpnExtensionAbility 挂起（需真机验证授权/失败回滚）
+- 表单中心：需 updateDuration≥1800 才会被索引（已修）
+
+**本次修复的 10 个真 bug（对真机同样有效）**：
+1. `hideNavBar(true)` 会隐藏 Split 模式整个菜单栏（t44 引入）→ 移除
+2. compact 阈值 640vp 会把 Pura 展开态(~530vp)误判紧凑 → 480 + navBarWidth 同步
+3. **启动不恢复持久化模式**：refreshMode 只在 toggleVpn 调用 → aboutToAppear/onPageShow 补上（硬性需求 #1/#3 回归）
+4. Proxies.isGlobalMode 是 private 普通字段 → 赋值不触发重渲染，模式指示器停在初值（时序性 bug）→ @State
+5. 直连模式指示器缺失（三元只有两分支）→ 加 isDirectMode 分支
+6. BusinessError 不是 Error 实例：`String(e)` = "[object Object]"（导入/扫码/导出/QR/保存/解锁检测全中招）→ errMsg/errCode 工具函数
+7. **双 bindSheet 同节点后者覆盖前者** → 编辑器 Sheet 从未弹出（真机上也是！）→ QR Sheet 挂 List 节点
+8. 连接页(1s)/规则页(2s) 轮询在 Navigation 栈下 aboutToDisappear 不触发 → 切页后永久空转 RPC → navPageHidden 停表 + vpnOn 自停
+9. SocketProxyService 对任何缺失 socket 的 RPC 都 toast "VPN服务启动失败" → 被动查询静默，仅 start/stop 提示
+10. form_config updateDuration:1 非法（最小 1800）→ 表单中心不索引 → 1800
+
+**模拟器使用要点（工具链）**：
+- `devecocli emulator start "Pura X Max"`（widefold 默认展开）；CLI 折叠控制需 Emulator 7.0+（当前 6.1.1.350 不可用）
+- `hdc -t 127.0.0.1:5557 install -r ...` + `aa start`；`devecocli ui layout/click/swipe/text`（click/text 是位置参数无 --target；swipe 太慢会触发系统手势，用 --speed 800）
+- 应用沙箱无 shell 写权限（uid 2000）：fixture 注入走应用自身 URL 导入（HTTPS 必须——自签证书被正确拒绝 2300060，安全行为）
+- 首次 TextInput 聚焦会弹小艺输入法向导（两次"下一步"完成）
+- 表单添加：桌面长按 → 编辑桌面 → 卡片 → 自定义 → 选应用 → 添加至桌面

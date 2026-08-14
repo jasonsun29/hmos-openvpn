@@ -19,6 +19,36 @@ import { fileIo, picker } from '@kit.CoreFileKit';
 import { scanCore, scanBarcode, generateBarcode } from '@kit.ScanKit';
 import { image } from '@kit.ImageKit';
 
+// BusinessError 在 OHOS 上不是 Error 实例：统一提取 code/message（否则显示 [object Object]）
+function errMsg(e: Object): string {
+  if (e instanceof Error) {
+    return e.message;
+  }
+  if (typeof e === 'object' && e !== null) {
+    const be = e as Record<string, Object>;
+    const m = be['message'];
+    if (typeof m === 'string' && m !== '') {
+      return m;
+    }
+    const c = be['code'];
+    if (c !== undefined && c !== null) {
+      return '错误码 ' + String(c);
+    }
+  }
+  return JSON.stringify(e);
+}
+
+function errCode(e: Object): string {
+  if (typeof e === 'object' && e !== null) {
+    const be = e as Record<string, Object>;
+    const c = be['code'];
+    if (c !== undefined && c !== null) {
+      return String(c);
+    }
+  }
+  return '';
+}
+
 @Component
 export struct ProfilesPage {
   @Consume colors: ThemeColors;
@@ -83,7 +113,7 @@ export struct ProfilesPage {
       promptAction.showToast({ message: '订阅导入成功: ' + profile.name });
       await this.loadProfiles();
     } catch (e) {
-      const msg: string = (e instanceof Error) ? e.message : String(e);
+      const msg: string = errMsg(e);
       console.error('T3', '导入失败 url=' + url + ' err=' + msg + ' stack=' + ((e instanceof Error) ? e.stack : ''));
       promptAction.showToast({ message: '导入失败: ' + msg });
     }
@@ -116,9 +146,10 @@ export struct ProfilesPage {
       }
       await this.doImportUrl(url);
     } catch (e) {
-      const msg: string = (e instanceof Error) ? e.message : String(e);
-      // 1000500002 = 用户取消扫码，静默
-      if (!msg.includes('1000500002')) {
+      const msg: string = errMsg(e);
+      // 1000500002 = 用户取消扫码，静默（BusinessError 不在 message 里带 code，需单独比对）
+      const isCancel: boolean = msg.includes('1000500002') || errCode(e) === '1000500002';
+      if (!isCancel) {
         console.error('T3', '扫码失败: ' + msg);
         promptAction.showToast({ message: '扫码失败: ' + msg });
       }
@@ -152,7 +183,7 @@ export struct ProfilesPage {
         await this.loadProfiles();
       }
     } catch (e) {
-      promptAction.showToast({ message: '导入失败: ' + String(e) });
+      promptAction.showToast({ message: '导入失败: ' + errMsg(e) });
     }
   }
 
@@ -179,8 +210,8 @@ export struct ProfilesPage {
       console.log('Profiles', 'exportProfile 复制完成: ' + saveUris[0]);
       promptAction.showToast({ message: '已导出' });
     } catch (e) {
-      console.error('Profiles', 'exportProfile 失败: ' + String(e));
-      promptAction.showToast({ message: '导出失败: ' + String(e) });
+      console.error('Profiles', 'exportProfile 失败: ' + errMsg(e));
+      promptAction.showToast({ message: '导出失败: ' + errMsg(e) });
     }
   }
 
@@ -200,7 +231,8 @@ export struct ProfilesPage {
       this.qrPixelMap = await generateBarcode.createBarcode(this.qrContent, options);
       this.showQr = true;
     } catch (e) {
-      promptAction.showToast({ message: '二维码生成失败: ' + String(e) });
+      console.error('Profiles', '二维码生成失败: ' + errMsg(e) + ' code=' + errCode(e));
+      promptAction.showToast({ message: '二维码生成失败: ' + errMsg(e) });
     }
   }
 
@@ -329,6 +361,13 @@ export struct ProfilesPage {
       .layoutWeight(1)
       .width('100%')
       .padding({ left: 16, right: 16 })
+      // M3 二维码分享 Sheet：挂 List 节点（根节点已挂编辑器 Sheet；
+      // 同节点重复 bindSheet 会后者覆盖前者，导致编辑器 Sheet 永不弹出）
+      .bindSheet($$this.showQr, this.qrSheet(), {
+        height: 460,
+        showClose: true,
+        dragBar: true
+      })
     }
     .width('100%')
     .height('100%')
@@ -338,11 +377,6 @@ export struct ProfilesPage {
     // （系统级动画、返回键/下滑关闭，$$ 双向绑定）
     .bindSheet($$this.showEditor, this.editorSheet(), {
       height: '70%',
-      showClose: true,
-      dragBar: true
-    })
-    .bindSheet($$this.showQr, this.qrSheet(), {
-      height: 460,
       showClose: true,
       dragBar: true
     })
@@ -459,7 +493,7 @@ export struct ProfilesPage {
       this.showEditor = false;
       promptAction.showToast({ message: '配置已保存' });
     } catch (e) {
-      promptAction.showToast({ message: '保存失败: ' + String(e) });
+      promptAction.showToast({ message: '保存失败: ' + errMsg(e) });
     }
   }
 
