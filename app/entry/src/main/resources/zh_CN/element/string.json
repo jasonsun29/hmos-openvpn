@@ -143,6 +143,18 @@
     {
       "name": "camera_reason",
       "value": "扫码导入订阅需要使用相机"
+    },
+    {
+      "name": "nav_unlock",
+      "value": "解锁"
+    },
+    {
+      "name": "form_name",
+      "value": "HarmonyVPN"
+    },
+    {
+      "name": "form_desc",
+      "value": "VPN 状态卡片"
     }
   ]
 }

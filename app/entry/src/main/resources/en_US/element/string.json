@@ -143,6 +143,18 @@
     {
       "name": "camera_reason",
       "value": "Camera is required for scanning QR subscription codes"
+    },
+    {
+      "name": "nav_unlock",
+      "value": "Unlock"
+    },
+    {
+      "name": "form_name",
+      "value": "HarmonyVPN"
+    },
+    {
+      "name": "form_desc",
+      "value": "VPN status card"
     }
   ]
 }

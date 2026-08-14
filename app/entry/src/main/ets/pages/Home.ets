@@ -137,6 +137,8 @@ export struct HomePage {
         this.refreshCurrentProxy();
         // P0-4 启动心跳检测（VPN 进程被杀时系统不通知，需自建心跳）
         this.appService.startHeartbeat();
+        // M3-3 服务卡片状态
+        SelectedMapStore.saveVpnOn(context, true);
         // T7.3a 后台保活（长时任务+常驻通知，防止 VPN 进程被系统回收）
         BackgroundKeepAliveService.getInstance().start(context);
       } else {
@@ -146,6 +148,8 @@ export struct HomePage {
         // P0-4 停止心跳
         this.appService.stopHeartbeat();
         BackgroundKeepAliveService.getInstance().stop(context);
+        // M3-3 服务卡片状态
+        SelectedMapStore.saveVpnOn(context, false);
       }
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);

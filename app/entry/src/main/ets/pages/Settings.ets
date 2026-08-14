@@ -26,6 +26,8 @@ export struct SettingsPage {
   // P3-8 GeoX 数据
   @State geoLastUpdate: string = '--';
   @State geoUpdating: boolean = false;
+  // M3-2 当前主题色（'' = 默认）
+  @State themeColor: string = '';
   @StorageLink('vpnOn') vpnOn: boolean = false;
   private appService: AppService = AppService.getInstance();
 
@@ -35,6 +37,9 @@ export struct SettingsPage {
       this.themeIndex = mode === ThemeMode.Light ? 0 : (mode === ThemeMode.Dark ? 1 : 2);
     });
     this.refreshGeoTime();
+    this.currentThemeColor().then((c: string) => {
+      this.themeColor = c;
+    });
   }
 
   setTheme(index: number): void {
@@ -44,10 +49,24 @@ export struct SettingsPage {
       const context = getContext(this) as common.UIAbilityContext;
       context.getApplicationContext().setColorMode(ThemeManager.modeToColorMode(mode));
       this.appService.setThemeMode(mode);
+      // M3-2 广播：MainPage 重新解析配色（修复 colors 不随模式切换的问题）
+      AppStorage.setOrCreate('themeChanged', Date.now());
     } catch (e) {
       const msg: string = (e instanceof Error) ? e.message : String(e);
       console.error('Settings', 'setColorMode failed: ' + msg);
     }
+  }
+
+  // M3-2 主题色切换（预设色板；'' = 跟随模式默认）
+  async setThemeColor(color: string): Promise<void> {
+    const repo = this.appService; // 用 AppService 的 Pref 通道
+    await repo.setPrefString('theme_color', color);
+    AppStorage.setOrCreate('themeChanged', Date.now());
+  }
+
+  // M3-2 当前主题色（用于色板选中态）
+  async currentThemeColor(): Promise<string> {
+    return await this.appService.getPrefString('theme_color', '');
   }
 
   // T6.2 端口下发（L2 变更）
@@ -141,6 +160,38 @@ export struct SettingsPage {
               this.themeOption(0, 'theme_light')
               this.themeOption(1, 'theme_dark')
               this.themeOption(2, 'theme_system')
+            }
+            .width('100%')
+          }
+          .width('100%')
+          .padding(16)
+          .borderRadius(12)
+          .backgroundColor(this.colors.card)
+        }
+
+        // M3-2 主题色自定义（预设色板）
+        ListItem() {
+          Column({ space: 8 }) {
+            Row() {
+              Text('主题色')
+                .fontSize(15)
+                .fontColor(this.colors.textPrimary)
+                .layoutWeight(1)
+            }
+            .width('100%')
+            Row({ space: 8 }) {
+              ForEach(ThemeManager.PRESET_COLORS, (c: string) => {
+                Button()
+                  .width(30)
+                  .height(30)
+                  .borderRadius(15)
+                  .backgroundColor(c === '' ? '#CCCCCC' : c)
+                  .border({ width: this.themeColor === c ? 2 : 0, color: this.colors.textPrimary })
+                  .onClick(() => {
+                    this.themeColor = c;
+                    this.setThemeColor(c);
+                  })
+              }, (c: string) => 'tc_' + c)
             }
             .width('100%')
           }

@@ -42,4 +42,13 @@ export class SettingsRepository {
   async setThemeMode(mode: ThemeMode): Promise<void> {
     await this.setString('theme_mode', mode);
   }
+
+  // M3-2 主题色自定义（'' = 跟随模式默认）
+  async getThemeColor(): Promise<string> {
+    return await this.getString('theme_color', '');
+  }
+
+  async setThemeColor(color: string): Promise<void> {
+    await this.setString('theme_color', color);
+  }
 }

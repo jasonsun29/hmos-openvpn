@@ -53,6 +53,19 @@
         "name": "ClashVpnAbility",
         "srcEntry": "./ets/entryability/ClashVpnAbility.ets",
         "type": "vpn"
+      },
+      {
+        "name": "VpnCardFormAbility",
+        "srcEntry": "./ets/vpncardform/VpnCardFormAbility.ets",
+        "type": "form",
+        "description": "$string:form_desc",
+        "exported": false,
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:form_config"
+          }
+        ]
       }
     ],
     "requestPermissions": [

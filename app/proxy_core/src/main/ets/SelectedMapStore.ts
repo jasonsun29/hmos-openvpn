@@ -18,6 +18,7 @@ const FILE_NAME = 'selected_map.json';
 
 interface SelectedMapFile {
   mode: string;
+  vpnOn: boolean;
   profiles: Record<string, Record<string, string>>;
 }
 
@@ -26,7 +27,7 @@ export class SelectedMapStore {
     try {
       const path = context.filesDir + '/' + FILE_NAME;
       if (!fileIo.accessSync(path)) {
-        return { mode: '', profiles: {} };
+        return { mode: '', vpnOn: false, profiles: {} };
       }
       const file = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
       const stat = fileIo.statSync(path);
@@ -41,9 +42,12 @@ export class SelectedMapStore {
       if (typeof obj.mode !== 'string') {
         obj.mode = '';
       }
+      if (typeof obj.vpnOn !== 'boolean') {
+        obj.vpnOn = false;
+      }
       return obj;
     } catch (e) {
-      return { mode: '', profiles: {} };
+      return { mode: '', vpnOn: false, profiles: {} };
     }
   }
 
@@ -84,5 +88,17 @@ export class SelectedMapStore {
     const data = await SelectedMapStore.loadFile(context);
     data.mode = mode;
     await SelectedMapStore.saveFile(context, data);
+  }
+
+  // M3-3 服务卡片：VPN 开关状态（UI 写入，卡片/跨进程读取）
+  static async saveVpnOn(context: Context, on: boolean): Promise<void> {
+    const data = await SelectedMapStore.loadFile(context);
+    data.vpnOn = on;
+    await SelectedMapStore.saveFile(context, data);
+  }
+
+  static async loadVpnOn(context: Context): Promise<boolean> {
+    const data = await SelectedMapStore.loadFile(context);
+    return data.vpnOn;
   }
 }

@@ -15,8 +15,9 @@ import { util } from '@kit.ArkTS';
 // P2-13 文件 API 统一：saveEdit 写配置文件用 fileIo.sync，文本读取走 proxy_core/readText
 // P3-7/P3-11 picker：本地文件导入 + 导出
 import { fileIo, picker } from '@kit.CoreFileKit';
-// P3-12 扫码导入（系统 ScanKit 默认扫码页）
-import { scanCore, scanBarcode } from '@kit.ScanKit';
+// P3-12 扫码导入（系统 ScanKit 默认扫码页）；M3 二维码分享（generateBarcode）
+import { scanCore, scanBarcode, generateBarcode } from '@kit.ScanKit';
+import { image } from '@kit.ImageKit';
 
 @Component
 export struct ProfilesPage {
@@ -27,6 +28,10 @@ export struct ProfilesPage {
   // 配置编辑状态
   @State showEditor: boolean = false;
   @State editContent: string = '';
+  // M3 订阅二维码分享
+  @State showQr: boolean = false;
+  @State qrContent: string = '';
+  @State qrPixelMap: image.PixelMap | undefined = undefined;
   private editingId: string = '';
   private appService: AppService = AppService.getInstance();
 
@@ -179,6 +184,26 @@ export struct ProfilesPage {
     }
   }
 
+  // M3 订阅二维码分享：URL 订阅 → clash://install?url= 二维码（与扫码导入闭环）
+  async showProfileQr(p: Profile): Promise<void> {
+    if (p.type !== ProfileType.Url || p.url === '') {
+      promptAction.showToast({ message: '仅支持 URL 订阅生成二维码' });
+      return;
+    }
+    this.qrContent = 'clash://install?url=' + p.url;
+    try {
+      const options: generateBarcode.CreateOptions = {
+        scanType: scanCore.ScanType.QR_CODE,
+        height: 280,
+        width: 280
+      };
+      this.qrPixelMap = await generateBarcode.createBarcode(this.qrContent, options);
+      this.showQr = true;
+    } catch (e) {
+      promptAction.showToast({ message: '二维码生成失败: ' + String(e) });
+    }
+  }
+
   // T3.1 切换激活
   async activateProfile(p: Profile): Promise<void> {
     this.activeId = p.id;
@@ -285,6 +310,13 @@ export struct ProfilesPage {
                 .backgroundColor('#5A6B8C')
                 .margin({ left: 4 })
                 .onClick(() => this.exportProfile(p))
+              // M3 二维码分享
+              Button('二维码')
+                .fontSize(12)
+                .height(30)
+                .backgroundColor('#5A6B8C')
+                .margin({ left: 4 })
+                .onClick(() => this.showProfileQr(p))
             }
             .width('100%')
             .padding(16)
@@ -309,6 +341,43 @@ export struct ProfilesPage {
       showClose: true,
       dragBar: true
     })
+    .bindSheet($$this.showQr, this.qrSheet(), {
+      height: 460,
+      showClose: true,
+      dragBar: true
+    })
+  }
+
+  // M3 二维码分享 Sheet
+  @Builder
+  qrSheet() {
+    Column({ space: 12 }) {
+      Text('订阅二维码')
+        .fontSize(16)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(this.colors.textPrimary)
+        .width('100%')
+      if (this.qrPixelMap !== undefined) {
+        Image(this.qrPixelMap)
+          .width(280)
+          .height(280)
+      }
+      Text(this.qrContent)
+        .fontSize(10)
+        .fontColor(this.colors.textSecondary)
+        .maxLines(2)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .width('100%')
+      Text('用另一台设备的 HarmonyVPN「扫码」导入')
+        .fontSize(11)
+        .fontColor(this.colors.textSecondary)
+        .width('100%')
+    }
+    .width('100%')
+    .height('100%')
+    .padding(16)
+    .backgroundColor(this.colors.card)
+    .alignItems(HorizontalAlign.Center)
   }
 
   // P3-4（t33）编辑器 Sheet 内容

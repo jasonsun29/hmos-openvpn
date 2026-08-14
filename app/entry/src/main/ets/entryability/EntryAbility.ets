@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
+import { AbilityConstant, Configuration, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 // P3-10 UI 进程轻量保活：不单独起长时任务（NEXT 管控极严且 VPN 隧道在 :vpn 进程），
@@ -73,5 +73,11 @@ export default class EntryAbility extends UIAbility {
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onNewWant');
     // P3-10 二次拉起（如从通知/桌面图标）同样补一次验活
     AppService.getInstance().pingCoreNow();
+  }
+
+  onConfigurationUpdate(newConfig: Configuration): void {
+    hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onConfigurationUpdate');
+    // M3-2 系统深浅色变化（跟随系统模式）时重新解析配色
+    AppStorage.setOrCreate('themeChanged', Date.now());
   }
 }

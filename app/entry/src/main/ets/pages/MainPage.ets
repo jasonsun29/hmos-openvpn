@@ -8,7 +8,7 @@
  *   - onShown/onHidden 经 AppStorage 广播，页面 @Watch 做刷新/暂停
  *     （兼容 NavDestination 下 onPageShow/onPageHide 的生命周期语义变化）
  */
-import { common } from '@kit.AbilityKit';
+import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { HomePage } from './Home';
 import { ProxiesPage } from './Proxies';
 import { ProfilesPage } from './Profiles';
@@ -16,18 +16,37 @@ import { SettingsPage } from './Settings';
 import { ConnectionsPage } from './Connections';
 import { RulesPage } from './Rules';
 import { LogsPage } from './Logs';
+import { UnlockPage } from './Unlock';
 import { ThemeColors, ThemeManager } from '../model/Theme';
 import { CoreState } from '../model/CoreState';
 import { AppService } from '../service/AppService';
+import { SettingsRepository } from '../repository/SettingsRepository';
 
 @Entry
 @Component
 struct MainPage {
   @State currentIndex: number = 0;
+  // M2 折叠态降级：窄屏（折叠）时侧栏降级为图标栏（宽 64、隐藏文字）
+  @State compact: boolean = false;
   @Provide colors: ThemeColors = ThemeManager.lightColors;
   @Provide coreState: CoreState = new CoreState();
   @Provide('pathStack') pathStack: NavPathStack = new NavPathStack();
+  // M3-2 主题变更广播（Settings 切主题/系统深浅色变化时触发重新解析配色）
+  @StorageLink('themeChanged') @Watch('onThemeChanged') themeChanged: number = 0;
   private appService: AppService = AppService.getInstance();
+
+  onThemeChanged(): void {
+    this.applyTheme();
+  }
+
+  // M3-2 按 模式×自定义主色 解析并应用配色（修复原 getColors 无调用方、colors 恒浅色的问题）
+  applyTheme(): void {
+    const context = getContext(this) as common.UIAbilityContext;
+    const isDark = context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
+    SettingsRepository.getInstance().getThemeColor().then((custom: string) => {
+      this.colors = ThemeManager.getColors(isDark, custom);
+    });
+  }
   private navItems: Array<NavItem> = [
     { titleKey: 'nav_home', icon: '\uE6AE', pageName: 'Home' },
     { titleKey: 'nav_proxies', icon: '\uE6A8', pageName: 'Proxies' },
@@ -35,7 +54,8 @@ struct MainPage {
     { titleKey: 'nav_settings', icon: '\uE6F0', pageName: 'Settings' },
     { titleKey: 'nav_connections', icon: '\uE6B4', pageName: 'Connections' },
     { titleKey: 'nav_rules', icon: '\uE6D9', pageName: 'Rules' },
-    { titleKey: 'nav_logs', icon: '\uE6DD', pageName: 'Logs' }
+    { titleKey: 'nav_logs', icon: '\uE6DD', pageName: 'Logs' },
+    { titleKey: 'nav_unlock', icon: '🎬', pageName: 'Unlock' }
   ];
 
   aboutToAppear(): void {
@@ -50,6 +70,7 @@ struct MainPage {
     }).catch((e: Error) => {
       console.error('T1', 'AppService init failed: ' + e.message);
     });
+    this.applyTheme();
     // t44 初始页推入（栈空时）
     if (this.pathStack.getIndexByName('Home').length === 0) {
       this.pathStack.pushPathByName('Home', null);
@@ -122,14 +143,20 @@ struct MainPage {
       }
       .onShown(() => this.onPageShown('Logs'))
       .onHidden(() => this.onPageHidden('Logs'))
+    } else if (name === 'Unlock') {
+      NavDestination() {
+        UnlockPage()
+      }
+      .onShown(() => this.onPageShown('Unlock'))
+      .onHidden(() => this.onPageHidden('Unlock'))
     }
   }
 
   build() {
     Navigation(this.pathStack) {
-      // 左侧导航栏
+      // 左侧导航栏（M2 折叠态：窄屏降级为图标栏）
       Column() {
-        Text('hmos-openvpn')
+        Text(this.compact ? '✈' : 'hmos-openvpn')
           .fontSize(16)
           .fontWeight(FontWeight.Bold)
           .fontColor(this.colors.primary)
@@ -142,13 +169,15 @@ struct MainPage {
               Text(item.icon)
                 .fontSize(18)
                 .fontColor(this.currentIndex === index ? '#007AFF' : '#666666')
-              Text($r('app.string.' + item.titleKey))
-                .fontSize(14)
-                .fontColor(this.currentIndex === index ? '#007AFF' : '#666666')
+              if (!this.compact) {
+                Text($r('app.string.' + item.titleKey))
+                  .fontSize(14)
+                  .fontColor(this.currentIndex === index ? '#007AFF' : '#666666')
+              }
             }
             .width('100%')
-            .justifyContent(FlexAlign.Start)
-            .padding({ left: 20 })
+            .justifyContent(this.compact ? FlexAlign.Center : FlexAlign.Start)
+            .padding({ left: this.compact ? 0 : 20 })
           }
           .width('100%')
           .height(44)
@@ -158,16 +187,23 @@ struct MainPage {
           .onClick(() => this.onNavClick(index))
         }, (item: NavItem) => item.titleKey)
       }
-      .width(180)
+      .width(this.compact ? 64 : 180)
       .height('100%')
       .backgroundColor(this.colors.background)
-      .alignItems(HorizontalAlign.Start)
+      .alignItems(this.compact ? HorizontalAlign.Center : HorizontalAlign.Start)
     }
     .mode(NavigationMode.Split)
     .hideNavBar(true)
     .navDestination(this.pageMap)
     .width('100%')
     .height('100%')
+    .onAreaChange((_old: Area, newArea: Area) => {
+      // 折叠态阈值：宽度 < 640vp 视为折叠窄屏
+      const isCompact = Number(newArea.width) < 640;
+      if (isCompact !== this.compact) {
+        this.compact = isCompact;
+      }
+    })
   }
 }
 
